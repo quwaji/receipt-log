@@ -1,0 +1,25 @@
+# 依存関係
+node_modules/
+
+# 環境変数・シークレット
+.env
+*.env.*
+!.env.example
+deploy-env.yaml
+
+# GCP サービスアカウントキー（絶対にコミットしない）
+sa-key.json
+*-key.json
+*.key.json
+service-account*.json
+
+# macOS
+.DS_Store
+
+# ログ
+*.log
+npm-debug.log*
+
+# エディタ
+.vscode/
+.idea/
