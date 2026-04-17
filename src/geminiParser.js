@@ -9,6 +9,8 @@ const PROMPT = `
 {
   "storeName": "店名（文字列）",
   "totalAmount": 合計金額（数値、税込み、円記号なし）,
+  "paymentDate": "支払い日時（レシートに記載の日時を「YYYY/MM/DD HH:mm」形式で。日付のみの場合は「YYYY/MM/DD」。読み取れない場合は null）",
+  "paymentMethod": "支払い方法（「カード」または「現金」のいずれか。クレジット・デビット・電子マネー・QR決済はすべて「カード」。判断できない場合は「現金」）",
   "items": "品目リスト（各行に「品名 金額円」の形式で改行区切り）"
 }
 
@@ -48,6 +50,8 @@ async function parseReceipt(imageBuffer) {
   return {
     storeName: parsed.storeName ?? null,
     totalAmount: parsed.totalAmount ?? null,
+    paymentDate: parsed.paymentDate ?? null,
+    paymentMethod: parsed.paymentMethod ?? "現金",
     items: parsed.items ?? null,
   };
 }

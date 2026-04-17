@@ -15,26 +15,30 @@ function getAuth() {
 
 /**
  * スプレッドシートに1行追記する
- * @param {{ timestamp, userId, displayName, storeName, totalAmount, items }} row
+ * @param {{ receivedAt, paymentDate, userId, displayName, groupId, storeName, totalAmount, paymentMethod, items, remarks }} row
  */
-async function logToSheet({ timestamp, userId, displayName, storeName, totalAmount, items }) {
+async function logToSheet({ receivedAt, paymentDate, userId, displayName, groupId, storeName, totalAmount, paymentMethod, items, remarks }) {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
   const values = [
     [
-      timestamp,
+      receivedAt,
+      paymentDate ?? "",
       userId,
       displayName,
+      groupId ?? "",
       storeName ?? "",
       totalAmount ?? "",
+      paymentMethod ?? "",
       items ?? "",
+      remarks ?? "",
     ],
   ];
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:F`,
+    range: `${SHEET_NAME}!A:J`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values },
