@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: process.env.DOTENV_PATH || '.env.local' });
 
 const express = require("express");
 const { middleware, Client } = require("@line/bot-sdk");

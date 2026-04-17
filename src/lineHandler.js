@@ -15,6 +15,7 @@ async function handleEvent(event, client) {
   const userId = event.source.userId;
   const groupId = event.source.groupId ?? null;
   const replyToken = event.replyToken;
+  const receivedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
 
   // グループ内のユーザー表示名を取得（グループ外はプロフィールから取得）
   let displayName = "不明";
@@ -51,15 +52,23 @@ async function handleEvent(event, client) {
     return;
   }
 
+  // 支払い日時が読み取れなかった場合は受信日時を使い備考にメモ
+  const paymentDate = receipt.paymentDate ?? receivedAt;
+  const remarks = receipt.paymentDate ? "" : "支払い日時はレシートから読み取れなかったため受信日時を使用";
+
   // スプレッドシートに記録
   try {
     await logToSheet({
-      timestamp: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+      receivedAt,
+      paymentDate,
       userId,
       displayName,
+      groupId,
       storeName: receipt.storeName,
       totalAmount: receipt.totalAmount,
+      paymentMethod: receipt.paymentMethod,
       items: receipt.items,
+      remarks,
     });
   } catch (err) {
     console.error("スプレッドシート記録失敗:", err);
@@ -69,9 +78,10 @@ async function handleEvent(event, client) {
 
   // 記録完了を返信
   const itemsText = receipt.items ? receipt.items.replace(/\n/g, "、") : "（品目不明）";
+  const remarksText = remarks ? `\n📝 ${remarks}` : "";
   await client.replyMessage(replyToken, {
     type: "text",
-    text: `✅ 記録しました！\n\n👤 ${displayName}\n🏪 ${receipt.storeName ?? "（店名不明）"}\n💴 ${receipt.totalAmount ?? "（金額不明）"} 円\n🛒 ${itemsText}`,
+    text: `✅ 記録しました！\n\n👤 ${displayName}\n🏪 ${receipt.storeName ?? "（店名不明）"}\n🗓 ${paymentDate}\n💴 ${receipt.totalAmount ?? "（金額不明）"} 円（${receipt.paymentMethod}）\n🛒 ${itemsText}${remarksText}`,
   });
 }
 
