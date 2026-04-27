@@ -5,7 +5,7 @@ const {
   getExistingTransactions,
   filterDuplicates,
 } = require("./bankTransactionDedup");
-const { logImportResult } = require("./bankTransactionLogger");
+const { logResult } = require("./logger");
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 
@@ -183,7 +183,7 @@ async function processSingleFile(
     fileResult.status = "success";
 
     // ログを記録
-    await logImportResult(spreadsheetId, {
+    await logResult(spreadsheetId, {
       timestamp,
       ...fileResult,
     });

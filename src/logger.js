@@ -11,11 +11,11 @@ function getAuth() {
 }
 
 /**
- * インポート処理ログをスプレッドシートに記録
+ * ログをスプレッドシートに記録
  * @param {string} spreadsheetId - スプレッドシートID
  * @param {Object} logEntry - ログエントリ
  */
-async function logImportResult(
+async function logResult(
   spreadsheetId,
   {
     timestamp,
@@ -29,7 +29,7 @@ async function logImportResult(
 ) {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
-  const logsSheetName = process.env.BANK_LOGS_SHEET_NAME || "logs";
+  const logsSheetName = process.env.LOGS_SHEET_NAME || "logs";
 
   const values = [
     [
@@ -58,5 +58,5 @@ async function logImportResult(
 }
 
 module.exports = {
-  logImportResult,
+  logResult,
 };
