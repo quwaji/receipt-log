@@ -201,7 +201,8 @@ function convertHankakuToZenkaku(text) {
   result = result.replace(/ﾍﾟ/g, "ペ");
   result = result.replace(/ﾎﾟ/g, "ポ");
 
-  return result;
+  // NFC正規化で長音符や複合文字を正規化
+  return result.normalize("NFC");
 }
 
 /**

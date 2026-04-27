@@ -31,8 +31,8 @@ async function getExistingTransactions(spreadsheetId, sheetName) {
     const transactions = rows.slice(1).map((row) => ({
       transactionDate: row[0] || "",
       amount: parseFloat(row[1]) || 0,
-      description: row[3] || "", // 摘要
-      balance: parseFloat(row[4]) || 0,
+      balance: parseFloat(row[3]) || 0, // D列: 残高
+      description: row[4] || "",        // E列: 摘要
     }));
 
     return transactions;
