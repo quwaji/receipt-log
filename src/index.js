@@ -3,6 +3,7 @@ require('dotenv').config({ path: process.env.DOTENV_PATH || '.env.local' });
 const express = require("express");
 const { middleware, Client } = require("@line/bot-sdk");
 const { handleEvent } = require("./lineHandler");
+const { importBankTransactions } = require("./bankTransactionImporter");
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -10,6 +11,9 @@ const config = {
 };
 
 const app = express();
+
+// ボディパーサーの設定
+app.use(express.json());
 
 app.post("/webhook", middleware(config), (req, res) => {
   // すぐにレスポンスを返す（LINE のタイムアウト防止）
@@ -21,6 +25,39 @@ app.post("/webhook", middleware(config), (req, res) => {
       console.error("イベント処理エラー:", err);
     });
   });
+});
+
+/**
+ * 銀行取引CSVのインポート
+ * POST /bank/import
+ * リクエストボディ: { spreadsheetId: "...", bankFolderId: "..." }
+ */
+app.post("/bank/import", async (req, res) => {
+  try {
+    const spreadsheetId = req.body.spreadsheetId || process.env.SPREADSHEET_ID;
+    const bankFolderId = req.body.bankFolderId || process.env.BANK_FOLDER_ID;
+
+    if (!spreadsheetId || !bankFolderId) {
+      return res.status(400).json({
+        status: "error",
+        message: "spreadsheetId または bankFolderId が指定されていません",
+      });
+    }
+
+    console.log(
+      `銀行取引インポート開始: spreadsheetId=${spreadsheetId}, bankFolderId=${bankFolderId}`
+    );
+
+    const result = await importBankTransactions(spreadsheetId, bankFolderId);
+
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("/bank/import エラー:", err);
+    res.status(500).json({
+      status: "error",
+      message: err.message,
+    });
+  }
 });
 
 app.get("/health", (_req, res) => res.send("OK"));

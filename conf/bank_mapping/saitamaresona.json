@@ -1,0 +1,16 @@
+{
+  "bankName": "共通口座（埼玉りそな）",
+  "encoding": "shift_jis",
+  "skipHeaderRow": true,
+  "skipFooterRow": true,
+  "columns": {
+    "取引日（年）": 14,
+    "取引日（月）": 15,
+    "取引日（日）": 16,
+    "金額": 17,
+    "区分": 13,
+    "残高": 18,
+    "摘要": 19,
+    "コメント": 20
+  }
+}
