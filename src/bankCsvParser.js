@@ -42,7 +42,7 @@ async function loadBankMapping(bankFolderId) {
 /**
  * CSVをパースしてオブジェクト配列に変換
  * @param {Buffer} csvBuffer - CSVファイルの内容
- * @param {Object} mapping - マッピング設定 { columns: { "取引日": 0, "金額": 1, ... } }
+ * @param {Object} mapping - マッピング設定 { skipHeaderRow: true/false, skipFooterRow: true/false, columns: { "取引日": 0, ... } }
  * @returns {Array<Object>} パース済みのトランザクションリスト
  */
 function parseCSV(csvBuffer, mapping) {
@@ -58,8 +58,9 @@ function parseCSV(csvBuffer, mapping) {
   // 最初の行をヘッダーとして処理するか、列インデックスで処理するか
   // マッピングで列インデックスが指定されているため、全行がデータ
   const startIndex = mapping.skipHeaderRow ? 1 : 0;
+  const endIndex = mapping.skipFooterRow ? lines.length - 1 : lines.length;
 
-  for (let i = startIndex; i < lines.length; i++) {
+  for (let i = startIndex; i < endIndex; i++) {
     const values = parseCSVLine(lines[i]);
     const transaction = extractTransactionData(values, mapping.columns);
 
@@ -108,8 +109,24 @@ function parseCSVLine(line) {
  * @returns {Object|null} トランザクションオブジェクト
  */
 function extractTransactionData(values, columns) {
-  // 必須フィールド
-  const transactionDate = values[columns["取引日"]]?.trim();
+  // 取引日を取得（単一カラムまたは複合カラム）
+  let transactionDate;
+  if (columns["取引日"] !== undefined) {
+    transactionDate = values[columns["取引日"]]?.trim();
+  } else if (
+    columns["取引日（年）"] !== undefined &&
+    columns["取引日（月）"] !== undefined &&
+    columns["取引日（日）"] !== undefined
+  ) {
+    const year = values[columns["取引日（年）"]]?.trim();
+    const month = values[columns["取引日（月）"]]?.trim();
+    const day = values[columns["取引日（日）"]]?.trim();
+
+    if (year && month && day) {
+      transactionDate = `${year}/${month}/${day}`;
+    }
+  }
+
   const amount = values[columns["金額"]]?.trim();
   const description = values[columns["摘要"]]?.trim();
   const balance = values[columns["残高"]]?.trim();
