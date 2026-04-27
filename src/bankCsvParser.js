@@ -1,4 +1,5 @@
 const { downloadFile } = require("./bankDriveHelper");
+const iconv = require("iconv-lite");
 
 const MAPPING_FILENAME = "bank_mapping.json";
 
@@ -42,11 +43,13 @@ async function loadBankMapping(bankFolderId) {
 /**
  * CSVをパースしてオブジェクト配列に変換
  * @param {Buffer} csvBuffer - CSVファイルの内容
- * @param {Object} mapping - マッピング設定 { skipHeaderRow: true/false, skipFooterRow: true/false, columns: { "取引日": 0, ... } }
+ * @param {Object} mapping - マッピング設定 { skipHeaderRow: true/false, skipFooterRow: true/false, encoding: "utf-8" | "shift_jis", columns: { "取引日": 0, ... } }
  * @returns {Array<Object>} パース済みのトランザクションリスト
  */
 function parseCSV(csvBuffer, mapping) {
-  const csv = csvBuffer.toString("utf-8");
+  // エンコーディングに対応（デフォルトはutf-8）
+  const encoding = mapping.encoding || "utf-8";
+  const csv = iconv.decode(csvBuffer, encoding);
   const lines = csv.split("\n").filter((line) => line.trim());
 
   if (lines.length === 0) {
@@ -103,6 +106,105 @@ function parseCSVLine(line) {
 }
 
 /**
+ * 半角カナを全角カナに変換
+ * @param {string} text - 変換対象のテキスト
+ * @returns {string} 全角カナに変換されたテキスト
+ */
+function convertHankakuToZenkaku(text) {
+  if (!text) return text;
+
+  // 半角カナから全角カナへのマッピング
+  const hankakuMap = {
+    ｱ: "ア",
+    ｲ: "イ",
+    ｳ: "ウ",
+    ｴ: "エ",
+    ｵ: "オ",
+    ｶ: "カ",
+    ｷ: "キ",
+    ｸ: "ク",
+    ｹ: "ケ",
+    ｺ: "コ",
+    ｻ: "サ",
+    ｼ: "シ",
+    ｽ: "ス",
+    ｾ: "セ",
+    ｿ: "ソ",
+    ﾀ: "タ",
+    ﾁ: "チ",
+    ﾂ: "ツ",
+    ﾃ: "テ",
+    ﾄ: "ト",
+    ﾅ: "ナ",
+    ﾆ: "ニ",
+    ﾇ: "ヌ",
+    ﾈ: "ネ",
+    ﾉ: "ノ",
+    ﾊ: "ハ",
+    ﾋ: "ヒ",
+    ﾌ: "フ",
+    ﾍ: "ヘ",
+    ﾎ: "ホ",
+    ﾏ: "マ",
+    ﾐ: "ミ",
+    ﾑ: "ム",
+    ﾒ: "メ",
+    ﾓ: "モ",
+    ﾔ: "ヤ",
+    ﾕ: "ユ",
+    ﾖ: "ヨ",
+    ﾗ: "ラ",
+    ﾘ: "リ",
+    ﾙ: "ル",
+    ﾚ: "レ",
+    ﾛ: "ロ",
+    ﾜ: "ワ",
+    ﾝ: "ン",
+    ｧ: "ァ",
+    ｨ: "ィ",
+    ｩ: "ゥ",
+    ｪ: "ェ",
+    ｫ: "ォ",
+    ｬ: "ャ",
+    ｭ: "ュ",
+    ｮ: "ョ",
+    ｯ: "ッ",
+  };
+
+  // 半角カナを全角カナに変換
+  let result = text.replace(/[ｱ-ﾝ]/g, (match) => hankakuMap[match] || match);
+
+  // 半角の濁点・半濁点を全角に変換（゛゜）
+  result = result.replace(/ｶﾞ/g, "ガ");
+  result = result.replace(/ｷﾞ/g, "ギ");
+  result = result.replace(/ｸﾞ/g, "グ");
+  result = result.replace(/ｹﾞ/g, "ゲ");
+  result = result.replace(/ｺﾞ/g, "ゴ");
+  result = result.replace(/ｻﾞ/g, "ザ");
+  result = result.replace(/ｼﾞ/g, "ジ");
+  result = result.replace(/ｽﾞ/g, "ズ");
+  result = result.replace(/ｾﾞ/g, "ゼ");
+  result = result.replace(/ｿﾞ/g, "ゾ");
+  result = result.replace(/ﾀﾞ/g, "ダ");
+  result = result.replace(/ﾁﾞ/g, "ヂ");
+  result = result.replace(/ﾂﾞ/g, "ヅ");
+  result = result.replace(/ﾃﾞ/g, "デ");
+  result = result.replace(/ﾄﾞ/g, "ド");
+  result = result.replace(/ﾊﾞ/g, "バ");
+  result = result.replace(/ﾋﾞ/g, "ビ");
+  result = result.replace(/ﾌﾞ/g, "ブ");
+  result = result.replace(/ﾍﾞ/g, "ベ");
+  result = result.replace(/ﾎﾞ/g, "ボ");
+  result = result.replace(/ﾊﾟ/g, "パ");
+  result = result.replace(/ﾋﾟ/g, "ピ");
+  result = result.replace(/ﾌﾟ/g, "プ");
+  result = result.replace(/ﾍﾟ/g, "ペ");
+  result = result.replace(/ﾎﾟ/g, "ポ");
+
+  return result;
+}
+
+/**
  * マッピングを適用してトランザクションデータを抽出
  * @param {Array<string>} values - CSV行のデータ配列
  * @param {Object} columns - 列マッピング
@@ -138,10 +240,10 @@ function extractTransactionData(values, columns) {
   return {
     transactionDate,
     amount: parseFloat(amount.replace(/[^0-9.-]/g, "")), // 数字のみ抽出
-    category: values[columns["区分"]]?.trim() || "",
+    category: convertHankakuToZenkaku(values[columns["区分"]]?.trim() || ""),
     balance: parseFloat(balance.replace(/[^0-9.-]/g, "")),
-    description,
-    comments: values[columns["コメント"]]?.trim() || "",
+    description: convertHankakuToZenkaku(description),
+    comments: convertHankakuToZenkaku(values[columns["コメント"]]?.trim() || ""),
     categoryAuto: "", // 将来的に自動化
   };
 }
