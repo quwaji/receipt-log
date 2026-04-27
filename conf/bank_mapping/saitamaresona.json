@@ -1,4 +1,5 @@
 {
+  "bankName": "共通口座（埼玉りそな）",
   "encoding": "shift_jis",
   "skipHeaderRow": true,
   "skipFooterRow": true,

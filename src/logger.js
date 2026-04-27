@@ -18,6 +18,8 @@ function getAuth() {
 async function logResult(
   spreadsheetId,
   {
+    processName = "",
+    bankName = "",
     timestamp,
     fileName,
     status, // "success" | "failure"
@@ -34,6 +36,8 @@ async function logResult(
   const values = [
     [
       timestamp,
+      processName,
+      bankName,
       fileName,
       status,
       totalRows,
@@ -46,7 +50,7 @@ async function logResult(
   try {
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${logsSheetName}!A:G`,
+      range: `${logsSheetName}!A:I`,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: { values },

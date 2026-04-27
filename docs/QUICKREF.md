@@ -6,7 +6,7 @@
 receipt-log/
 ├── src/
 │   ├── index.js
-│   │   └─ Express サーバー、Webhook エンドポイント
+│   │   └─ Express サーバー、/webhook・/bank/import エンドポイント
 │   │
 │   ├── lineHandler.js
 │   │   ├─ LINE イベント処理
@@ -15,33 +15,51 @@ receipt-log/
 │   │   └─ orchestration & error handling
 │   │
 │   ├── geminiParser.js
-│   │   └─ Gemini 1.5 Flash を使用したレシート解析
-│   │       入力: Buffer | 出力: {storeName, totalAmount, items}
+│   │   └─ Gemini 2.5 Flash を使用したレシート解析
+│   │       入力: Buffer | 出力: {storeName, totalAmount, paymentDate, paymentMethod, items}
 │   │
-│   └── sheetsLogger.js
-│       └─ サービスアカウント認証で Google Sheets に追記
-│           範囲: {SHEET_NAME}!A:F
+│   ├── sheetsLogger.js
+│   │   └─ サービスアカウント認証で receipts シートに追記
+│   │       範囲: {SHEET_NAME}!A:J
+│   │
+│   ├── bankTransactionImporter.js
+│   │   └─ 銀行取引インポートのオーケストレーション
+│   │       Drive から CSV 取得 → パース → 重複チェック → Sheets 追記
+│   │
+│   ├── bankCsvParser.js
+│   │   └─ CSV パース（Shift-JIS 対応、半角カナ全角変換、NFC 正規化）
+│   │       マッピング設定 (bank_mapping.json) を使用して列を抽出
+│   │
+│   ├── bankTransactionDedup.js
+│   │   └─ 既存トランザクションとの重複チェック
+│   │       照合キー: 取引日 + 金額 + 摘要 + 残高
+│   │
+│   ├── bankDriveHelper.js
+│   │   └─ Google Drive から CSV 一覧取得・ダウンロード・フォルダ移動
+│   │
+│   └── logger.js
+│       └─ logs シートへの処理結果記録
+│           範囲: {LOGS_SHEET_NAME}!A:I
+│
+├── conf/
+│   └── bank_mapping/
+│       └── saitamaresona.json   # 銀行マッピングサンプル
 │
 ├── package.json
-│   └─ 依存関係（@line/bot-sdk, googleapis, @google/generative-ai）
+│   └─ 依存関係（@line/bot-sdk, googleapis, @google/generative-ai, iconv-lite）
 │
 ├── Dockerfile
 │   └─ Cloud Run デプロイ用（Node 20-slim）
 │
-├── README.md
-│   └─ プロジェクト概要
+├── .env.example
+│   └─ 環境変数テンプレート
 │
-├── ARCHITECTURE.md
-│   └─ システム設計（フロー、アーキテクチャ、スキーマ）
-│
-├── API.md
-│   └─ Webhook / LINE API / Sheets API 仕様
-│
-├── SETUP.md
-│   └─ GCP プロジェクト作成からデプロイまで
-│
-└── .env.example
-    └─ 環境変数テンプレート
+└── docs/
+    ├── SETUP.md       # GCP プロジェクト作成からデプロイまで
+    ├── ARCHITECTURE.md  # システム設計
+    ├── API.md         # Webhook / Sheets スキーマ / エンドポイント仕様
+    ├── QUICKREF.md    # このファイル
+    └── MONITORING.md  # 監視・運用手順
 ```
 
 ---
@@ -52,9 +70,12 @@ receipt-log/
 |------|------|--------|
 | `LINE_CHANNEL_SECRET` | LINE Webhook 署名検証 | LINE Developers > Channel Secret |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE メッセージ送受信 | LINE Developers > Channel Access Token |
-| `GEMINI_API_KEY` | Gemini API 認証 | Google AI Studio (aistudio.google.com) |
+| `GEMINI_API_KEY` | Gemini API 認証 | Google AI Studio (aistudio.google.com) ※個人アカウント |
 | `SPREADSHEET_ID` | Google Sheets ID | URL: `/d/{SpreadsheetID}/edit` |
-| `SHEET_NAME` | シート名（デフォルト: receipts） | Google Sheets タブ名 |
+| `SHEET_NAME` | receipts シート名（default: receipts）| Google Sheets タブ名 |
+| `BANK_TRANS_SHEET_NAME` | 銀行取引シート名（default: bank trans）| Google Sheets タブ名 |
+| `LOGS_SHEET_NAME` | ログシート名（default: logs）| Google Sheets タブ名 |
+| `BANK_FOLDER_ID` | 銀行 CSV フォルダ ID | Drive の URL: `/folders/{ID}` |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | GCP サービスアカウント認証 | gcloud iam service-accounts keys create |
 
 ---
@@ -67,11 +88,11 @@ receipt-log/
 # 1. 依存関係のインストール
 npm install
 
-# 2. .env ファイル作成
-cp .env.example .env
+# 2. .env.local ファイル作成
+cp .env.example .env.local
 # 値を埋める...
 
-# 3. ローカル実行
+# 3. ローカル実行（.env.local を自動で読み込む）
 npm run dev
 ```
 
@@ -88,12 +109,10 @@ gcloud run logs read receipt-log-bot --region asia-northeast1 --limit 50
 ### デプロイ
 
 ```bash
-# 環境変数を指定してデプロイ（SETUP.md 参照）
 gcloud run deploy receipt-log-bot \
   --source . \
   --region asia-northeast1 \
-  --set-env-vars="..." \
-  # ... 他の環境変数
+  --set-env-vars="..." # SETUP.md 参照
 ```
 
 ---
@@ -124,42 +143,43 @@ await client.replyMessage(replyToken, { type: "text", text: "..." });
 ```javascript
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-// 画像 + テキスト送信
 const result = await model.generateContent([
   prompt,
-  {
-    inlineData: {
-      data: imageBuffer.toString("base64"),
-      mimeType: "image/jpeg"
-    }
-  }
+  { inlineData: { data: imageBuffer.toString("base64"), mimeType: "image/jpeg" } }
 ]);
-
-// レスポンス取得
 const text = result.response.text();
 ```
 
-### Google Sheets API
+### Google Sheets API（追記）
 
 ```javascript
 const { google } = require("googleapis");
 const sheets = google.sheets({ version: "v4", auth });
 
-// 行を追記
 await sheets.spreadsheets.values.append({
   spreadsheetId,
-  range: `${SHEET_NAME}!A:F`,
+  range: `${SHEET_NAME}!A:J`,   // receipts: A:J / bank trans: A:H / logs: A:I
   valueInputOption: "USER_ENTERED",
   insertDataOption: "INSERT_ROWS",
   requestBody: { values: [[...]] }
 });
 ```
 
+### 銀行インポートのローカルテスト
+
+```bash
+curl -X POST http://localhost:8080/bank/import \
+  -H "Content-Type: application/json" \
+  -d '{"spreadsheetId": "...", "bankFolderId": "..."}'
+```
+
 ---
 
 ## エラー対応フローチャート
+
+### レシート処理（/webhook）
 
 ```
 Webhook 受信
@@ -183,15 +203,36 @@ Webhook 受信
      └─► replyMessage("✅ 記録しました！...") → 終了
 ```
 
+### 銀行インポート（/bank/import）
+
+```
+POST /bank/import
+  │
+  ├─ bank_mapping.json が見つからない → 400 エラー
+  ├─ CSV ファイルなし → "処理対象なし" で 200
+  │
+  └─ 各 CSV ファイル
+      ├─ パース失敗 → 「要確認」フォルダへ移動・logs に記録
+      └─ 成功 → 「処理済み」フォルダへ移動・logs に記録
+```
+
 ---
 
 ## テストチェックリスト
 
-- [ ] ローカルで `npm run dev` が起動する
+### レシート機能
+- [ ] `npm run dev` が起動する
 - [ ] ngrok で LINE テストメッセージ送信 → Bot 返信確認
-- [ ] Google Sheets に行が追記されることを確認
-- [ ] グループのユーザー ID が記録される
-- [ ] エラー時に Bot が通知を返す
+- [ ] receipts シートに行が追記される（A:J 全カラム）
+- [ ] 支払い日時が読み取れない場合、J 列に備考が入る
+- [ ] グループ ID が E 列に記録される
+
+### 銀行インポート機能
+- [ ] `POST /bank/import` でエラーなく完了する
+- [ ] bank trans シートに行が追記される（H 列に銀行名）
+- [ ] logs シートに処理結果が記録される（B 列に "bank trans"、C 列に銀行名）
+- [ ] 重複行が除外される
+- [ ] 処理済み CSV が「処理済み」フォルダへ移動する
 
 ---
 
@@ -205,74 +246,4 @@ Webhook 受信
 | Sheets 追記 | ~100ms |
 | **合計** | **~2.2-5.2s** |
 
-タイムアウト: Cloud Run 60秒（充分な余裕）
-
----
-
-## メトリクス監視
-
-### 重要な KPI
-
-```
-Error Rate (1日)
-  └─ replyMessage("失敗しました") の頻度
-  └─ 目安: < 1%
-
-Latency P95
-  └─ Webhook 完了まで
-  └─ 目安: < 5秒
-
-Daily Requests
-  └─ Gemini API 使用量
-  └─ 目安: < 1,500 (無料枠)
-```
-
-### Cloud Logging で監視（オプション）
-
-```bash
-# エラーログだけを抽出
-gcloud run logs read receipt-log-bot \
-  --region asia-northeast1 \
-  --filter="severity>=ERROR"
-
-# 特定の期間で集計
-gcloud run logs read receipt-log-bot \
-  --region asia-northeast1 \
-  --limit 100 \
-  --from-log-name=projects/PROJECT_ID/logs/run.googleapis.com%2Fstdout
-```
-
----
-
-## よくある問題と解決策
-
-### Q: Sheets に記録されない
-**A:**
-1. Spreadsheet ID が正しいか確認
-2. サービスアカウントがシートの共有を持つか確認
-   ```bash
-   gcloud iam service-accounts describe receipt-bot-sa@PROJECT_ID.iam.gserviceaccount.com
-   ```
-3. `gcloud run logs` でエラーを確認
-
-### Q: Bot の返信が遅い
-**A:**
-1. Gemini API レート制限を確認（15 RPM）
-2. 大きな画像を送っていないか確認
-3. Cloud Run メモリを増やす（デフォルト 512 MB で充分）
-
-### Q: グループで「不明」と表示される
-**A:**
-1. Bot がグループに参加しているか確認
-2. グループ ID が正しく渡されているか確認
-3. `console.warn("プロフィール取得失敗")` をログで見てフォールバック動作は正常
-
----
-
-## まとめ
-
-- **3 つのサービス統合:** LINE + Gemini + Google Sheets
-- **エラーハンドリング:** 各ステップで try-catch、段階的フェイルセーフ
-- **スケーラビリティ:** 無料枠で月 1,500 件まで対応可能
-- **監視:** Cloud Logging で自動ログ、エラー時は Slack 通知可能（拡張）
-
+タイムアウト: Cloud Run 60秒（十分な余裕）

@@ -63,6 +63,7 @@ async function importBankTransactions(spreadsheetId, bankFolderId) {
   try {
     // マッピング設定を読み込む
     const mapping = await loadBankMapping(bankFolderId);
+    const bankName = mapping.bankName || "不明";
 
     // CSVファイル一覧を取得
     const csvFiles = await listCsvFiles(bankFolderId);
@@ -105,6 +106,7 @@ async function importBankTransactions(spreadsheetId, bankFolderId) {
         file,
         spreadsheetId,
         mapping,
+        bankName,
         existingTransactions,
         successFolderId,
         failureFolderId,
@@ -140,6 +142,7 @@ async function processSingleFile(
   file,
   spreadsheetId,
   mapping,
+  bankName,
   existingTransactions,
   successFolderId,
   failureFolderId,
@@ -171,7 +174,7 @@ async function processSingleFile(
 
     // 新規トランザクションをスプレッドシートに追記
     if (unique.length > 0) {
-      await appendTransactionsToSheet(spreadsheetId, unique);
+      await appendTransactionsToSheet(spreadsheetId, bankName, unique);
       fileResult.importedRows = unique.length;
 
       // 既存トランザクションに新規を追加（次ファイル処理時の重複チェック用）
@@ -184,6 +187,8 @@ async function processSingleFile(
 
     // ログを記録
     await logResult(spreadsheetId, {
+      processName: "bank trans",
+      bankName,
       timestamp,
       ...fileResult,
     });
@@ -196,7 +201,9 @@ async function processSingleFile(
       await moveFile(file.id, failureFolderId);
 
       // ログを記録
-      await logImportResult(spreadsheetId, {
+      await logResult(spreadsheetId, {
+        processName: "bank trans",
+        bankName,
         timestamp,
         ...fileResult,
       });
@@ -211,7 +218,7 @@ async function processSingleFile(
 /**
  * トランザクションをスプレッドシートに追記
  */
-async function appendTransactionsToSheet(spreadsheetId, transactions) {
+async function appendTransactionsToSheet(spreadsheetId, bankName, transactions) {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
   const sheetName = process.env.BANK_TRANS_SHEET_NAME || "bank trans";
@@ -224,11 +231,12 @@ async function appendTransactionsToSheet(spreadsheetId, transactions) {
     t.description,
     t.comments,
     t.categoryAuto,
+    bankName,
   ]);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:G`,
+    range: `${sheetName}!A:H`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values },

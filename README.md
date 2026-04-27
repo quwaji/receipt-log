@@ -1,37 +1,46 @@
 # Receipt Log Bot
 
 LINE グループ内で共有されたレシート画像を自動で解析し、Google Sheets に記録する Bot です。
+また、銀行の取引明細 CSV を Google Drive 経由でスプレッドシートにインポートする機能も備えています。
 
 ## 特徴
 
 - **無料で運用可能** — Cloud Run の無料枠内で動作
-- **グループ対応** — 誰がレシートを申告したかを自動記録
-- **自動解析** — Gemini API でレシート情報を構造化データに変換
+- **グループ対応** — 誰がレシートを申告したか・どのグループからかを自動記録
+- **自動解析** — Gemini API でレシート情報（店名・金額・支払い日時・支払い方法・品目）を構造化データに変換
 - **スプレッドシート統合** — リアルタイムでレシート情報を集計できる
+- **銀行取引インポート** — Shift-JIS の CSV に対応、銀行ごとのマッピング設定で複数口座を管理
 
 ## 使い方
 
-### ボットをグループに追加
+### ① レシートをグループで送信
 
-LINE アプリでボットを招待するだけで OK。
-
-### レシートを送信
-
-グループ内でレシート画像を送ると、ボットが自動で：
-
-1. 画像内の店名・金額・品目を認識
-2. 送信者の名前と USER ID を記録
-3. Google Sheets に追記
-4. スプレッドシート記録完了を返信
+LINE アプリでボットをグループに招待し、レシート画像を送るだけ。
 
 ```
 ✅ 記録しました！
 
 👤 田中太郎
 🏪 セブン-イレブン
-💴 1,280 円
+🗓 2026/04/10 15:32
+💴 1,280 円（現金）
 🛒 おにぎり、コーヒー、弁当
 ```
+
+ボットが自動で店名・金額・支払い日時・支払い方法・品目を認識し、送信者名・グループ ID とともに Google Sheets に追記します。
+
+### ② 銀行取引明細のインポート
+
+Google Drive の指定フォルダに CSV を置いて POST リクエストを送ると、スプレッドシートにインポートされます。
+
+```bash
+curl -X POST https://{cloud-run-url}/bank/import
+```
+
+- 重複チェックあり（同一取引の二重登録を防止）
+- 処理済みファイルは自動で「処理済み」フォルダへ移動
+- 失敗ファイルは「要確認」フォルダへ移動
+- 処理結果は logs シートに記録
 
 ## システム構成
 
@@ -40,12 +49,13 @@ LINE Bot
   ↓ (webhook)
 ├─ Cloud Run (Express)
    ├─ Gemini 2.5 Flash (レシート解析)
-   └─ Google Sheets API (記録)
+   ├─ Google Sheets API (記録)
+   └─ Google Drive API (CSV 取得)
 ```
 
 **無料枠:**
 - Cloud Run: 200万リクエスト/月
-- Gemini API: 1,500リクエスト/日
+- Gemini API: 20リクエスト/日（Free tier）
 - Google Sheets API: 制限なし
 - LINE Messaging API: 返信メッセージは無料
 
@@ -53,21 +63,30 @@ LINE Bot
 
 ```
 src/
-├── index.js         # Express サーバー + Webhook エンドポイント
-├── lineHandler.js   # LINE イベント処理（画像受信・ユーザー取得）
-├── geminiParser.js  # Gemini で画像をレシートデータに変換
-└── sheetsLogger.js  # Google Sheets に記録
+├── index.js                 # Express サーバー + Webhook / bank/import エンドポイント
+├── lineHandler.js           # LINE イベント処理（画像受信・ユーザー取得）
+├── geminiParser.js          # Gemini でレシート画像を構造化データに変換
+├── sheetsLogger.js          # receipts シートに記録
+├── bankTransactionImporter.js  # 銀行取引インポート処理のオーケストレーション
+├── bankCsvParser.js         # CSV パース（Shift-JIS 対応・半角カナ全角変換）
+├── bankTransactionDedup.js  # 重複チェック
+├── bankDriveHelper.js       # Google Drive からの CSV 取得・移動
+└── logger.js                # logs シートへの処理結果記録
+
+conf/
+└── bank_mapping/            # 銀行ごとのマッピング設定
+    └── saitamaresona.json   # 埼玉りそな銀行用サンプル
 
 docs/
 ├── SETUP.md         # セットアップ手順
 ├── ARCHITECTURE.md  # システム設計書
 ├── API.md           # API 仕様書
-└── QUICKREF.md      # 開発用チートシート
+├── QUICKREF.md      # 開発用チートシート
+└── MONITORING.md    # 監視・運用手順
 
 package.json         # 依存パッケージ
-Dockerfile          # Cloud Run デプロイ用
-.env.example        # 環境変数テンプレート
-README.md           # このファイル
+Dockerfile           # Cloud Run デプロイ用
+.env.example         # 環境変数テンプレート
 ```
 
 ## クイックスタート
@@ -81,38 +100,66 @@ README.md           # このファイル
 ## 技術スタック
 
 - **Node.js 20** — バックエンド
-- **Express** — Web 框架
+- **Express** — Web フレームワーク
 - **@line/bot-sdk** — LINE Messaging API クライアント
 - **@google/generative-ai** — Gemini API クライアント
-- **googleapis** — Google Sheets API クライアント
+- **googleapis** — Google Sheets / Drive API クライアント
+- **iconv-lite** — Shift-JIS CSV デコード
 - **Cloud Run** — ホスティング
 
-## 費用
+## スプレッドシートの構成
 
-月間 100 件のレシート申告の場合：
+### receipts シート（レシート記録）
 
-| 項目 | 費用 |
-|------|------|
-| Cloud Run | 0円（無料枠内） |
-| Gemini API | 100 × ¥0.075 = ¥7.5 |
-| Google Sheets API | 0円 |
-| **合計** | **¥7.5/月程度** |
+| 列 | 項目 |
+|----|------|
+| A | 受信日時 |
+| B | 支払い日時 |
+| C | LINE UserID |
+| D | 表示名 |
+| E | グループID |
+| F | 店名 |
+| G | 合計金額（円）|
+| H | 支払い方法 |
+| I | 品目 |
+| J | 備考 |
+
+### bank trans シート（銀行取引）
+
+| 列 | 項目 |
+|----|------|
+| A | 取引日 |
+| B | 金額 |
+| C | 区分 |
+| D | 残高 |
+| E | 摘要 |
+| F | コメント |
+| G | カテゴリ（自動）|
+| H | 銀行名 |
+
+### logs シート（インポート処理ログ）
+
+| 列 | 項目 |
+|----|------|
+| A | タイムスタンプ |
+| B | 処理名 |
+| C | 銀行名 |
+| D | ファイル名 |
+| E | ステータス |
+| F | 総行数 |
+| G | インポート行数 |
+| H | 重複行数 |
+| I | エラーメッセージ |
 
 ## トラブルシューティング
 
-異常系の対応は `lineHandler.js` で実装済み：
+異常系の対応は各モジュールで実装済み：
 
 - 画像取得失敗 → ユーザーに通知
 - レシート解析失敗 → ユーザーに通知
 - スプレッドシート記録失敗 → ユーザーに通知
 - プロフィール取得失敗 → 「不明」として続行
-
-## 今後の拡張案
-
-- 複数画像の一括送信対応
-- 月別・ユーザー別の集計ダッシュボード
-- カテゴリー分類の自動化
-- 領収書の PDF 出力
+- CSV インポート失敗 → 「要確認」フォルダへ移動・logs に記録
 
 ---
 
