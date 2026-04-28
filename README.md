@@ -10,6 +10,7 @@ LINE グループ内で共有されたレシート画像を自動で解析し、
 - **自動解析** — Gemini API でレシート情報（店名・金額・支払い日時・支払い方法・品目）を構造化データに変換
 - **スプレッドシート統合** — リアルタイムでレシート情報を集計できる
 - **銀行取引インポート** — Shift-JIS の CSV に対応、銀行ごとのマッピング設定で複数口座を管理
+- **カード利用明細インポート** — 楽天カード等の CSV に対応、カードごとのマッピング設定で複数カードを管理
 
 ## 使い方
 
@@ -42,6 +43,18 @@ curl -X POST https://{cloud-run-url}/bank/import
 - 失敗ファイルは「要確認」フォルダへ移動
 - 処理結果は logs シートに記録
 
+### ③ カード利用明細のインポート
+
+銀行取引と同様に、Google Drive のフォルダに CSV を置いて POST リクエストを送ります。
+
+```bash
+curl -X POST https://{cloud-run-url}/card/import
+```
+
+- ファイル内の重複はすべて取り込み、スプレッドシート既存データと一致する場合のみスキップ
+- 重複キー: 利用日 + 利用店名 + 利用者 + 利用金額
+- 処理結果は logs シートに記録（処理名: `card trans`）
+
 ## システム構成
 
 ```
@@ -63,19 +76,24 @@ LINE Bot
 
 ```
 src/
-├── index.js                 # Express サーバー + Webhook / bank/import エンドポイント
-├── lineHandler.js           # LINE イベント処理（画像受信・ユーザー取得）
-├── geminiParser.js          # Gemini でレシート画像を構造化データに変換
-├── sheetsLogger.js          # receipts シートに記録
-├── bankTransactionImporter.js  # 銀行取引インポート処理のオーケストレーション
-├── bankCsvParser.js         # CSV パース（Shift-JIS 対応・半角カナ全角変換）
-├── bankTransactionDedup.js  # 重複チェック
-├── bankDriveHelper.js       # Google Drive からの CSV 取得・移動
-└── logger.js                # logs シートへの処理結果記録
+├── index.js                   # Express サーバー + Webhook / bank/import / card/import エンドポイント
+├── lineHandler.js             # LINE イベント処理（画像受信・ユーザー取得）
+├── geminiParser.js            # Gemini でレシート画像を構造化データに変換
+├── sheetsLogger.js            # receipts シートに記録
+├── bankTransactionImporter.js # 銀行取引インポート処理のオーケストレーション
+├── bankCsvParser.js           # 銀行 CSV パース（Shift-JIS 対応・半角カナ全角変換）
+├── bankTransactionDedup.js    # 銀行取引の重複チェック
+├── bankDriveHelper.js         # Google Drive からの CSV 取得・移動（bank/card 共用）
+├── cardTransactionImporter.js # カード取引インポート処理のオーケストレーション
+├── cardCsvParser.js           # カード CSV パース・card_mapping.json 読み込み
+├── cardTransactionDedup.js    # カード取引の重複チェック
+└── logger.js                  # logs シートへの処理結果記録
 
 conf/
-└── bank_mapping/            # 銀行ごとのマッピング設定
-    └── saitamaresona.json   # 埼玉りそな銀行用サンプル
+├── bank_mapping/              # 銀行ごとのマッピング設定
+│   └── saitamaresona.json     # 埼玉りそな銀行用サンプル
+└── card_mapping/              # カードごとのマッピング設定
+    └── rakuten.json           # 楽天カード用サンプル
 
 docs/
 ├── SETUP.md         # セットアップ手順
@@ -123,6 +141,20 @@ Dockerfile           # Cloud Run デプロイ用
 | H | 支払い方法 |
 | I | 品目 |
 | J | 備考 |
+
+### card trans シート（カード利用明細）
+
+| 列 | 項目 |
+|----|------|
+| A | 利用日 |
+| B | 利用店名・商品名 |
+| C | 利用者 |
+| D | 支払方法 |
+| E | 利用金額 |
+| F | 手数料/利息 |
+| G | 支払総額 |
+| H | 支払月 |
+| I | カード名 |
 
 ### bank trans シート（銀行取引）
 
