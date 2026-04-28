@@ -20,7 +20,7 @@ receipt-log/
 │   │
 │   ├── sheetsLogger.js
 │   │   └─ サービスアカウント認証で receipts シートに追記
-│   │       範囲: {SHEET_NAME}!A:J
+│   │       範囲: {SHEET_NAME}!A:K
 │   │
 │   ├── bankTransactionImporter.js
 │   │   └─ 銀行取引インポートのオーケストレーション
@@ -48,6 +48,12 @@ receipt-log/
 │   │   └─ カード取引の重複チェック
 │   │       照合キー: 利用日 + 利用店名 + 利用者 + 利用金額
 │   │       ※ファイル内重複はすべて取り込み、Sheets 既存データのみスキップ
+│   │
+│   ├── categoryService.js
+│   │   └─ カテゴリ自動判定（ルール照合 + Gemini バッチ）
+│   │       ① category rules シートからキーワードを読み込み部分一致で判定
+│   │       ② 未知の店名のみ Gemini に一括問い合わせ
+│   │       ③ 新規ルールを category rules シートに自動追記
 │   │
 │   └── logger.js
 │       └─ logs シートへの処理結果記録
@@ -92,6 +98,7 @@ receipt-log/
 | `BANK_FOLDER_ID` | 銀行 CSV フォルダ ID | Drive の URL: `/folders/{ID}` |
 | `CARD_FOLDER_ID` | カード CSV フォルダ ID | Drive の URL: `/folders/{ID}` |
 | `CARD_TRANS_SHEET_NAME` | カード取引シート名（default: card trans）| Google Sheets タブ名 |
+| `CATEGORY_RULES_SHEET_NAME` | カテゴリルールシート名（default: category rules）| Google Sheets タブ名 |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | GCP サービスアカウント認証 | gcloud iam service-accounts keys create |
 
 ---
@@ -176,7 +183,7 @@ const sheets = google.sheets({ version: "v4", auth });
 
 await sheets.spreadsheets.values.append({
   spreadsheetId,
-  range: `${SHEET_NAME}!A:J`,   // receipts: A:J / bank trans: A:H / logs: A:I
+  range: `${SHEET_NAME}!A:K`,   // receipts: A:K / bank trans: A:H / card trans: A:J / logs: A:I
   valueInputOption: "USER_ENTERED",
   insertDataOption: "INSERT_ROWS",
   requestBody: { values: [[...]] }
@@ -257,13 +264,15 @@ POST /card/import
 ### レシート機能
 - [ ] `npm run dev` が起動する
 - [ ] ngrok で LINE テストメッセージ送信 → Bot 返信確認
-- [ ] receipts シートに行が追記される（A:J 全カラム）
+- [ ] receipts シートに行が追記される（A:K 全カラム）
 - [ ] 支払い日時が読み取れない場合、J 列に備考が入る
 - [ ] グループ ID が E 列に記録される
+- [ ] K 列にカテゴリが記録される
 
 ### 銀行インポート機能
 - [ ] `POST /bank/import` でエラーなく完了する
 - [ ] bank trans シートに行が追記される（H 列に銀行名）
+- [ ] G 列にカテゴリが記録される
 - [ ] logs シートに処理結果が記録される（B 列に "bank trans"、C 列に銀行名）
 - [ ] 重複行が除外される
 - [ ] 処理済み CSV が「処理済み」フォルダへ移動する
@@ -271,10 +280,16 @@ POST /card/import
 ### カードインポート機能
 - [ ] `POST /card/import` でエラーなく完了する
 - [ ] card trans シートに行が追記される（I 列にカード名）
+- [ ] J 列にカテゴリが記録される
 - [ ] logs シートに処理結果が記録される（B 列に "card trans"、C 列にカード名）
 - [ ] ファイル内の重複行がすべて取り込まれる
 - [ ] Sheets 既存データと一致する行のみスキップされる
 - [ ] 処理済み CSV が「処理済み」フォルダへ移動する
+
+### カテゴリ自動判定
+- [ ] category rules シートのルールが照合される（部分一致）
+- [ ] 未知の店名は Gemini で判定される
+- [ ] 新規ルールが category rules シートに自動追記される
 
 ---
 

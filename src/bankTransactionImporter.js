@@ -6,6 +6,7 @@ const {
   filterDuplicates,
 } = require("./bankTransactionDedup");
 const { logResult } = require("./logger");
+const { categorizeTransactions } = require("./categoryService");
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 
@@ -172,8 +173,17 @@ async function processSingleFile(
     );
     fileResult.duplicateRows = duplicate.length;
 
-    // 新規トランザクションをスプレッドシートに追記
+    // 新規トランザクションにカテゴリを付与
     if (unique.length > 0) {
+      try {
+        const descriptions = unique.map((t) => t.description);
+        const categories = await categorizeTransactions(spreadsheetId, descriptions);
+        unique.forEach((t, i) => { t.categoryAuto = categories[i]; });
+      } catch (err) {
+        console.warn("銀行取引カテゴリ判定失敗:", err.message);
+        unique.forEach((t) => { t.categoryAuto = "その他"; });
+      }
+
       await appendTransactionsToSheet(spreadsheetId, bankName, unique);
       fileResult.importedRows = unique.length;
 

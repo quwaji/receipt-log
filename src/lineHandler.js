@@ -1,5 +1,6 @@
 const { parseReceipt } = require("./geminiParser");
 const { logToSheet } = require("./sheetsLogger");
+const { categorizeTransactions } = require("./categoryService");
 
 /**
  * LINE イベントを処理する
@@ -56,6 +57,16 @@ async function handleEvent(event, client) {
   const paymentDate = receipt.paymentDate ?? receivedAt;
   const remarks = receipt.paymentDate ? "" : "支払い日時はレシートから読み取れなかったため受信日時を使用";
 
+  // カテゴリ自動判定
+  let categoryAuto = "その他";
+  try {
+    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const categories = await categorizeTransactions(spreadsheetId, [receipt.storeName ?? ""]);
+    categoryAuto = categories[0];
+  } catch (err) {
+    console.warn("カテゴリ判定失敗:", err.message);
+  }
+
   // スプレッドシートに記録
   try {
     await logToSheet({
@@ -69,6 +80,7 @@ async function handleEvent(event, client) {
       paymentMethod: receipt.paymentMethod,
       items: receipt.items,
       remarks,
+      categoryAuto,
     });
   } catch (err) {
     console.error("スプレッドシート記録失敗:", err);
