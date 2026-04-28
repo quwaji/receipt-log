@@ -6,6 +6,7 @@
 |---------|------|------|
 | POST | `/webhook` | LINE Messaging API からのイベント受信 |
 | POST | `/bank/import` | 銀行取引 CSV インポート |
+| POST | `/card/import` | カード利用明細 CSV インポート |
 | GET | `/health` | ヘルスチェック |
 
 ---
@@ -54,6 +55,86 @@ X-Line-Signature: {署名}
 
 1. LINE Webhook を受け取り即座に 200 を返す（タイムアウト防止）
 2. バックグラウンドで画像解析・Sheets 記録・返信を実行
+
+---
+
+## POST /card/import
+
+カード利用明細 CSV をスプレッドシートにインポートします。
+
+**リクエスト:**
+
+```
+POST https://{cloud-run-url}/card/import
+Content-Type: application/json
+```
+
+**リクエストボディ（省略可）:**
+
+```json
+{
+  "spreadsheetId": "1V3GW_...",
+  "cardFolderId": "1abc..."
+}
+```
+
+省略した場合は環境変数 `SPREADSHEET_ID` / `CARD_FOLDER_ID` を使用。
+
+**レスポンス（成功）:**
+
+```json
+{
+  "status": "completed",
+  "message": "1ファイル成功、0ファイル失敗",
+  "timestamp": "2026/04/28 10:00:00",
+  "results": [
+    {
+      "fileName": "enavi202605.csv",
+      "status": "success",
+      "totalRows": 30,
+      "importedRows": 28,
+      "duplicateRows": 2,
+      "errorMessage": ""
+    }
+  ]
+}
+```
+
+**重複チェックの仕様:**
+- ファイル内の重複行はすべて取り込む
+- スプレッドシートの既存データと一致する場合のみスキップ
+- 照合キー: 利用日 + 利用店名 + 利用者 + 利用金額
+
+**フォルダ構成:**
+
+```
+{CARD_FOLDER_ID}/
+├── card_mapping.json   # マッピング設定（必須）
+├── enavi202605.csv     # インポート対象 CSV
+├── 処理済み/           # 成功ファイルの移動先（自動作成）
+└── 要確認/             # 失敗ファイルの移動先（自動作成）
+```
+
+**card_mapping.json の形式:**
+
+```json
+{
+  "cardName": "楽天カード",
+  "encoding": "utf-8",
+  "skipHeaderRow": true,
+  "skipFooterRow": false,
+  "columns": {
+    "利用日": 0,
+    "利用店名": 1,
+    "利用者": 2,
+    "支払方法": 3,
+    "利用金額": 4,
+    "手数料/利息": 5,
+    "支払総額": 6,
+    "支払月": 7
+  }
+}
+```
 
 ---
 
@@ -241,6 +322,22 @@ Content-Type: application/json
 | G | String | カテゴリ（自動）| `` |
 | H | String | 銀行名 | `共通口座（埼玉りそな）` |
 
+### card trans シート（カード利用明細）
+
+追記範囲: `{CARD_TRANS_SHEET_NAME}!A:I`
+
+| 列 | タイプ | 項目 | 例 |
+|----|--------|------|----|
+| A | String | 利用日 | `2026/04/24` |
+| B | String | 利用店名・商品名 | `ビーンズムサシウラワ` |
+| C | String | 利用者 | `本人` |
+| D | String | 支払方法 | `1回払い` |
+| E | Number | 利用金額 | `3002` |
+| F | Number | 手数料/利息 | `0` |
+| G | Number | 支払総額 | `3002` |
+| H | String | 支払月 | `5月` |
+| I | String | カード名 | `楽天カード` |
+
 ### logs シート（インポート処理ログ）
 
 追記範囲: `{LOGS_SHEET_NAME}!A:I`
@@ -309,6 +406,12 @@ Content-Type: application/json
 
 - Free tier の RPD（20件/日）を超過している可能性
 - AI Studio の Rate Limit ページで使用量を確認: https://aistudio.google.com/app/rate-limit
+
+### card/import でファイルが見つからない
+
+- `card_mapping.json` がフォルダ直下に配置されているか確認
+- サービスアカウントに Drive の閲覧・編集権限があるか確認
+- `CARD_FOLDER_ID` が正しいか確認
 
 ### bank/import でファイルが見つからない
 

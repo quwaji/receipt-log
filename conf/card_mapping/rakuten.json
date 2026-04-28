@@ -1,0 +1,16 @@
+{
+  "cardName": "楽天カード",
+  "encoding": "utf-8",
+  "skipHeaderRow": true,
+  "skipFooterRow": false,
+  "columns": {
+    "利用日": 0,
+    "利用店名": 1,
+    "利用者": 2,
+    "支払方法": 3,
+    "利用金額": 4,
+    "手数料/利息": 5,
+    "支払総額": 6,
+    "支払月": 7
+  }
+}

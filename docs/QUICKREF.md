@@ -27,23 +27,37 @@ receipt-log/
 │   │       Drive から CSV 取得 → パース → 重複チェック → Sheets 追記
 │   │
 │   ├── bankCsvParser.js
-│   │   └─ CSV パース（Shift-JIS 対応、半角カナ全角変換、NFC 正規化）
+│   │   └─ 銀行 CSV パース（Shift-JIS 対応、半角カナ全角変換、NFC 正規化）
 │   │       マッピング設定 (bank_mapping.json) を使用して列を抽出
 │   │
 │   ├── bankTransactionDedup.js
-│   │   └─ 既存トランザクションとの重複チェック
+│   │   └─ 銀行取引の重複チェック
 │   │       照合キー: 取引日 + 金額 + 摘要 + 残高
 │   │
 │   ├── bankDriveHelper.js
-│   │   └─ Google Drive から CSV 一覧取得・ダウンロード・フォルダ移動
+│   │   └─ Google Drive から CSV 一覧取得・ダウンロード・フォルダ移動（bank/card 共用）
+│   │
+│   ├── cardTransactionImporter.js
+│   │   └─ カード取引インポートのオーケストレーション
+│   │       Drive から CSV 取得 → パース → 重複チェック → Sheets 追記
+│   │
+│   ├── cardCsvParser.js
+│   │   └─ カード CSV パース・card_mapping.json 読み込み
+│   │
+│   ├── cardTransactionDedup.js
+│   │   └─ カード取引の重複チェック
+│   │       照合キー: 利用日 + 利用店名 + 利用者 + 利用金額
+│   │       ※ファイル内重複はすべて取り込み、Sheets 既存データのみスキップ
 │   │
 │   └── logger.js
 │       └─ logs シートへの処理結果記録
 │           範囲: {LOGS_SHEET_NAME}!A:I
 │
 ├── conf/
-│   └── bank_mapping/
-│       └── saitamaresona.json   # 銀行マッピングサンプル
+│   ├── bank_mapping/
+│   │   └── saitamaresona.json   # 銀行マッピングサンプル
+│   └── card_mapping/
+│       └── rakuten.json         # 楽天カード用マッピングサンプル
 │
 ├── package.json
 │   └─ 依存関係（@line/bot-sdk, googleapis, @google/generative-ai, iconv-lite）
@@ -76,6 +90,8 @@ receipt-log/
 | `BANK_TRANS_SHEET_NAME` | 銀行取引シート名（default: bank trans）| Google Sheets タブ名 |
 | `LOGS_SHEET_NAME` | ログシート名（default: logs）| Google Sheets タブ名 |
 | `BANK_FOLDER_ID` | 銀行 CSV フォルダ ID | Drive の URL: `/folders/{ID}` |
+| `CARD_FOLDER_ID` | カード CSV フォルダ ID | Drive の URL: `/folders/{ID}` |
+| `CARD_TRANS_SHEET_NAME` | カード取引シート名（default: card trans）| Google Sheets タブ名 |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | GCP サービスアカウント認証 | gcloud iam service-accounts keys create |
 
 ---
@@ -167,12 +183,16 @@ await sheets.spreadsheets.values.append({
 });
 ```
 
-### 銀行インポートのローカルテスト
+### 銀行・カードインポートのローカルテスト
 
 ```bash
 curl -X POST http://localhost:8080/bank/import \
   -H "Content-Type: application/json" \
   -d '{"spreadsheetId": "...", "bankFolderId": "..."}'
+
+curl -X POST http://localhost:8080/card/import \
+  -H "Content-Type: application/json" \
+  -d '{"spreadsheetId": "...", "cardFolderId": "..."}'
 ```
 
 ---
@@ -216,6 +236,20 @@ POST /bank/import
       └─ 成功 → 「処理済み」フォルダへ移動・logs に記録
 ```
 
+### カードインポート（/card/import）
+
+```
+POST /card/import
+  │
+  ├─ card_mapping.json が見つからない → 400 エラー
+  ├─ CSV ファイルなし → "処理対象なし" で 200
+  │
+  └─ 各 CSV ファイル
+      ├─ パース失敗 → 「要確認」フォルダへ移動・logs に記録
+      └─ 成功（ファイル内重複はすべて取り込み、Sheets 既存のみスキップ）
+             → 「処理済み」フォルダへ移動・logs に記録
+```
+
 ---
 
 ## テストチェックリスト
@@ -232,6 +266,14 @@ POST /bank/import
 - [ ] bank trans シートに行が追記される（H 列に銀行名）
 - [ ] logs シートに処理結果が記録される（B 列に "bank trans"、C 列に銀行名）
 - [ ] 重複行が除外される
+- [ ] 処理済み CSV が「処理済み」フォルダへ移動する
+
+### カードインポート機能
+- [ ] `POST /card/import` でエラーなく完了する
+- [ ] card trans シートに行が追記される（I 列にカード名）
+- [ ] logs シートに処理結果が記録される（B 列に "card trans"、C 列にカード名）
+- [ ] ファイル内の重複行がすべて取り込まれる
+- [ ] Sheets 既存データと一致する行のみスキップされる
 - [ ] 処理済み CSV が「処理済み」フォルダへ移動する
 
 ---

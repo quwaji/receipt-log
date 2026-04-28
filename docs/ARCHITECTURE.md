@@ -20,36 +20,38 @@
         │ (receipt-log-bot)                   │
         │                                      │
         │  ┌─────────────────────────────┐   │
-        │  │  Express Server (Port 8080) │   │
-        │  │  - /webhook    (POST)       │   │
-        │  │  - /bank/import (POST)      │   │
-        │  │  - /health     (GET)        │   │
-        │  └────────┬──────────┬─────────┘   │
+        │  │  Express Server (Port 8080)  │   │
+        │  │  - /webhook      (POST)      │   │
+        │  │  - /bank/import  (POST)      │   │
+        │  │  - /card/import  (POST)      │   │
+        │  │  - /health       (GET)       │   │
+        │  └────────┬──────────┬──────────┘   │
         │           │          │              │
-        │  ┌────────▼──────┐  ┌▼──────────────────────────┐  │
-        │  │ lineHandler   │  │ bankTransactionImporter    │  │
-        │  ├───────────────┤  ├────────────────────────────┤  │
-        │  │ • Image 取得  │  │ • CSV 取得 (Drive)         │  │
-        │  │ • User 情報   │  │ • CSV パース               │  │
-        │  │ • orchestrate │  │ • 重複チェック             │  │
-        │  └────────┬──────┘  │ • Sheets 追記             │  │
-        │           │         │ • ログ記録                 │  │
-        │  ┌────────┼──────────────────────────────┐      │  │
-        │  ▼        ▼        ▼           ▼          ▼      │  │
-        │ Gemini  Sheets   Drive       Sheets     Sheets   │  │
-        │  API    (receipts) API     (bank trans) (logs)   │  │
-        └────────────────────────────────────────────────┘
+        │  ┌────────▼──────┐  ┌▼─────────────────────────────────┐  │
+        │  │ lineHandler   │  │ bank/cardTransactionImporter      │  │
+        │  ├───────────────┤  ├──────────────────────────────────┤  │
+        │  │ • Image 取得  │  │ • CSV 取得 (Drive)               │  │
+        │  │ • User 情報   │  │ • CSV パース                     │  │
+        │  │ • orchestrate │  │ • 重複チェック                   │  │
+        │  └────────┬──────┘  │ • Sheets 追記                   │  │
+        │           │         │ • ログ記録                       │  │
+        │  ┌────────┼─────────────────────────────────────┐    │  │
+        │  ▼        ▼        ▼        ▼           ▼         ▼   │  │
+        │ Gemini  Sheets  Drive    Sheets       Sheets    Sheets │  │
+        │  API  (receipts) API  (bank trans) (card trans) (logs) │  │
+        └──────────────────────────────────────────────────────┘
 ```
 
 ## コンポーネント詳細
 
 ### 1. Cloud Run (Express Server)
 
-**役割:** LINE Webhook と銀行インポートリクエストを受け取り、各サービスを調整
+**役割:** LINE Webhook・銀行インポート・カードインポートリクエストを受け取り、各サービスを調整
 
 **エンドポイント:**
 - `POST /webhook` — LINE のイベント受信（middleware で署名検証）
 - `POST /bank/import` — 銀行取引 CSV インポート
+- `POST /card/import` — カード利用明細 CSV インポート
 - `GET /health` — ヘルスチェック
 
 **環境変数:**
@@ -60,8 +62,10 @@ GEMINI_API_KEY               # Gemini API 認証
 SPREADSHEET_ID               # Google Sheets ID
 SHEET_NAME                   # receipts シート名（default: receipts）
 BANK_TRANS_SHEET_NAME        # 銀行取引シート名（default: bank trans）
+CARD_TRANS_SHEET_NAME        # カード取引シート名（default: card trans）
 LOGS_SHEET_NAME              # ログシート名（default: logs）
 BANK_FOLDER_ID               # 銀行 CSV を置く Google Drive フォルダ ID
+CARD_FOLDER_ID               # カード CSV を置く Google Drive フォルダ ID
 GOOGLE_SERVICE_ACCOUNT_JSON  # GCP サービスアカウント認証情報
 ```
 
@@ -136,33 +140,45 @@ Event 受信
 
 ---
 
-### 5. 銀行取引インポート
+### 5. 銀行取引インポート・カード利用明細インポート
 
-#### フロー
+#### 銀行取引フロー（`POST /bank/import`）
 
 ```
-POST /bank/import
-  ↓
 [マッピング設定読み込み]
   └─ Google Drive: bank_mapping.json
         → {bankName, encoding, skipHeaderRow, skipFooterRow, columns}
   ↓
-[CSV ファイル一覧取得]
-  └─ bankDriveHelper: listCsvFiles(folderId)
-  ↓
-[既存トランザクション取得]
-  └─ bankTransactionDedup: getExistingTransactions(spreadsheetId)
+[CSV ファイル一覧取得] → [既存トランザクション取得]
   ↓
 [各 CSV ファイルを処理]
-  ├─ ダウンロード (Drive)
   ├─ パース (bankCsvParser)
   │    ├─ Shift-JIS デコード (iconv-lite)
-  │    ├─ 半角カナ→全角変換
-  │    └─ NFC 正規化
-  ├─ 重複チェック (bankTransactionDedup)
+  │    ├─ 半角カナ→全角変換・NFC 正規化
+  │    └─ 年月日分割カラム対応
+  ├─ 重複チェック: 取引日 + 金額 + 摘要 + 残高
   ├─ Sheets 追記 (bank trans シート)
   ├─ ファイル移動 (成功→処理済み / 失敗→要確認)
-  └─ ログ記録 (logs シート)
+  └─ ログ記録 (logs シート、処理名: "bank trans")
+```
+
+#### カード利用明細フロー（`POST /card/import`）
+
+```
+[マッピング設定読み込み]
+  └─ Google Drive: card_mapping.json
+        → {cardName, encoding, skipHeaderRow, skipFooterRow, columns}
+  ↓
+[CSV ファイル一覧取得] → [既存トランザクション取得]
+  ↓
+[各 CSV ファイルを処理]
+  ├─ パース (cardCsvParser)
+  │    └─ encoding 指定に対応（楽天カードは UTF-8）
+  ├─ 重複チェック: 利用日 + 利用店名 + 利用者 + 利用金額
+  │    ※ファイル内の重複はすべて取り込み、Sheets 既存データのみスキップ
+  ├─ Sheets 追記 (card trans シート)
+  ├─ ファイル移動 (成功→処理済み / 失敗→要確認)
+  └─ ログ記録 (logs シート、処理名: "card trans")
 ```
 
 #### bank trans シートのレコード形式
@@ -170,6 +186,12 @@ POST /bank/import
 | A | B | C | D | E | F | G | H |
 |---|---|---|---|---|---|---|---|
 | 取引日 | 金額 | 区分 | 残高 | 摘要 | コメント | カテゴリ（自動）| 銀行名 |
+
+#### card trans シートのレコード形式
+
+| A | B | C | D | E | F | G | H | I |
+|---|---|---|---|---|---|---|---|---|
+| 利用日 | 利用店名・商品名 | 利用者 | 支払方法 | 利用金額 | 手数料/利息 | 支払総額 | 支払月 | カード名 |
 
 #### logs シートのレコード形式
 
