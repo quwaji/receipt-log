@@ -13,9 +13,6 @@ const config = {
 
 const app = express();
 
-// ボディパーサーの設定
-app.use(express.json());
-
 app.post("/webhook", middleware(config), (req, res) => {
   // すぐにレスポンスを返す（LINE のタイムアウト防止）
   res.status(200).send("OK");
@@ -33,7 +30,7 @@ app.post("/webhook", middleware(config), (req, res) => {
  * POST /bank/import
  * リクエストボディ: { spreadsheetId: "...", bankFolderId: "..." }
  */
-app.post("/bank/import", async (req, res) => {
+app.post("/bank/import", express.json(), async (req, res) => {
   try {
     const spreadsheetId = req.body.spreadsheetId || process.env.SPREADSHEET_ID;
     const bankFolderId = req.body.bankFolderId || process.env.BANK_FOLDER_ID;
@@ -66,7 +63,7 @@ app.post("/bank/import", async (req, res) => {
  * POST /card/import
  * リクエストボディ: { spreadsheetId: "...", cardFolderId: "..." }
  */
-app.post("/card/import", async (req, res) => {
+app.post("/card/import", express.json(), async (req, res) => {
   try {
     const spreadsheetId = req.body.spreadsheetId || process.env.SPREADSHEET_ID;
     const cardFolderId = req.body.cardFolderId || process.env.CARD_FOLDER_ID;

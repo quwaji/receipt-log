@@ -11,6 +11,7 @@ LINE グループ内で共有されたレシート画像を自動で解析し、
 - **スプレッドシート統合** — リアルタイムでレシート情報を集計できる
 - **銀行取引インポート** — Shift-JIS の CSV に対応、銀行ごとのマッピング設定で複数口座を管理
 - **カード利用明細インポート** — 楽天カード等の CSV に対応、カードごとのマッピング設定で複数カードを管理
+- **カテゴリ自動判定** — ルールベース＋Gemini のハイブリッドで全トランザクションにカテゴリを付与。既知の店名はルールで即判定し、未知の店名のみ Gemini に問い合わせて `category rules` シートに蓄積
 
 ## 使い方
 
@@ -87,6 +88,7 @@ src/
 ├── cardTransactionImporter.js # カード取引インポート処理のオーケストレーション
 ├── cardCsvParser.js           # カード CSV パース・card_mapping.json 読み込み
 ├── cardTransactionDedup.js    # カード取引の重複チェック
+├── categoryService.js         # カテゴリ自動判定（ルール照合 + Gemini バッチ）
 └── logger.js                  # logs シートへの処理結果記録
 
 conf/

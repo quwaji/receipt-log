@@ -64,6 +64,7 @@ SHEET_NAME                   # receipts シート名（default: receipts）
 BANK_TRANS_SHEET_NAME        # 銀行取引シート名（default: bank trans）
 CARD_TRANS_SHEET_NAME        # カード取引シート名（default: card trans）
 LOGS_SHEET_NAME              # ログシート名（default: logs）
+CATEGORY_RULES_SHEET_NAME    # カテゴリルールシート名（default: category rules）
 BANK_FOLDER_ID               # 銀行 CSV を置く Google Drive フォルダ ID
 CARD_FOLDER_ID               # カード CSV を置く Google Drive フォルダ ID
 GOOGLE_SERVICE_ACCOUNT_JSON  # GCP サービスアカウント認証情報
@@ -97,9 +98,13 @@ Event 受信
   [支払い日時フォールバック]
       └─ paymentDate が null → 受信日時を使用、備考にメモ
       ↓
+  [カテゴリ自動判定]
+      └─ categorizeTransactions(spreadsheetId, [storeName])
+            → ルール照合（部分一致）→ 未知の場合 Gemini バッチ処理
+      ↓
   [Sheets に記録]
       └─ logToSheet({receivedAt, paymentDate, userId, displayName,
-                      groupId, storeName, totalAmount, paymentMethod, items, remarks})
+                      groupId, storeName, totalAmount, paymentMethod, items, remarks, categoryAuto})
       ↓
   [返信を送信]
       └─ replyMessage(replyToken, text)
@@ -134,13 +139,43 @@ Event 受信
 
 **receipts シートのレコード形式:**
 
-| A | B | C | D | E | F | G | H | I | J |
-|---|---|---|---|---|---|---|---|---|---|
-| 受信日時 | 支払い日時 | LINE UserID | 表示名 | グループID | 店名 | 合計金額 | 支払い方法 | 品目 | 備考 |
+| A | B | C | D | E | F | G | H | I | J | K |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 受信日時 | 支払い日時 | LINE UserID | 表示名 | グループID | 店名 | 合計金額 | 支払い方法 | 品目 | 備考 | カテゴリ |
 
 ---
 
-### 5. 銀行取引インポート・カード利用明細インポート
+### 5. カテゴリサービス (`src/categoryService.js`)
+
+**役割:** レシート・銀行・カードの全トランザクションにカテゴリを自動付与
+
+**フロー:**
+
+```
+[category rules シートからルール読み込み]
+  ↓
+[各トランザクションをルール照合（部分一致）]
+  ├─ 一致 → カテゴリ確定
+  └─ 不一致 → 未知リストへ
+      ↓
+  [未知の店名を Gemini バッチ処理]
+      └─ 1リクエストで複数店名を一括判定
+      ↓
+  [新規ルールを category rules シートに追記]
+      └─ {キーワード, カテゴリ, 登録日時, "Gemini"}
+```
+
+**カテゴリ一覧:**
+`食費 / 日用品 / 交通費 / 通信費 / 光熱費 / 医療 / 娯楽 / 衣類 / 教育 / 保険 / 住居費 / その他`
+
+**設計のポイント:**
+- 既知の店名はルールで即判定（Gemini 不使用）→ RPD 節約
+- 未知の店名のみ Gemini バッチ処理（複数をまとめて 1 リクエスト）
+- 判定結果を自動で rules シートに蓄積 → 次回以降はルール照合で完結
+
+---
+
+### 6. 銀行取引インポート・カード利用明細インポート
 
 #### 銀行取引フロー（`POST /bank/import`）
 
@@ -157,7 +192,9 @@ Event 受信
   │    ├─ 半角カナ→全角変換・NFC 正規化
   │    └─ 年月日分割カラム対応
   ├─ 重複チェック: 取引日 + 金額 + 摘要 + 残高
-  ├─ Sheets 追記 (bank trans シート)
+  ├─ カテゴリ自動判定 (categoryService)
+  │    └─ ルール照合 → 未知の店名のみ Gemini バッチ → category rules に蓄積
+  ├─ Sheets 追記 (bank trans シート、G 列にカテゴリ)
   ├─ ファイル移動 (成功→処理済み / 失敗→要確認)
   └─ ログ記録 (logs シート、処理名: "bank trans")
 ```
@@ -176,7 +213,9 @@ Event 受信
   │    └─ encoding 指定に対応（楽天カードは UTF-8）
   ├─ 重複チェック: 利用日 + 利用店名 + 利用者 + 利用金額
   │    ※ファイル内の重複はすべて取り込み、Sheets 既存データのみスキップ
-  ├─ Sheets 追記 (card trans シート)
+  ├─ カテゴリ自動判定 (categoryService)
+  │    └─ ルール照合 → 未知の店名のみ Gemini バッチ → category rules に蓄積
+  ├─ Sheets 追記 (card trans シート、J 列にカテゴリ)
   ├─ ファイル移動 (成功→処理済み / 失敗→要確認)
   └─ ログ記録 (logs シート、処理名: "card trans")
 ```
@@ -189,9 +228,19 @@ Event 受信
 
 #### card trans シートのレコード形式
 
-| A | B | C | D | E | F | G | H | I |
-|---|---|---|---|---|---|---|---|---|
-| 利用日 | 利用店名・商品名 | 利用者 | 支払方法 | 利用金額 | 手数料/利息 | 支払総額 | 支払月 | カード名 |
+| A | B | C | D | E | F | G | H | I | J |
+|---|---|---|---|---|---|---|---|---|---|
+| 利用日 | 利用店名・商品名 | 利用者 | 支払方法 | 利用金額 | 手数料/利息 | 支払総額 | 支払月 | カード名 | カテゴリ |
+
+#### category rules シートのレコード形式
+
+| A | B | C | D |
+|---|---|---|---|
+| キーワード | カテゴリ | 登録日時 | ソース |
+
+- **キーワード**: 店名の部分一致に使用する文字列
+- **カテゴリ**: `食費 / 日用品 / 交通費 / 通信費 / 光熱費 / 医療 / 娯楽 / 衣類 / 教育 / 保険 / 住居費 / その他`
+- **ソース**: `Gemini`（自動追加）または手動で入力
 
 #### logs シートのレコード形式
 

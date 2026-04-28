@@ -17,7 +17,7 @@ function getAuth() {
  * スプレッドシートに1行追記する
  * @param {{ receivedAt, paymentDate, userId, displayName, groupId, storeName, totalAmount, paymentMethod, items, remarks }} row
  */
-async function logToSheet({ receivedAt, paymentDate, userId, displayName, groupId, storeName, totalAmount, paymentMethod, items, remarks }) {
+async function logToSheet({ receivedAt, paymentDate, userId, displayName, groupId, storeName, totalAmount, paymentMethod, items, remarks, categoryAuto = "" }) {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
@@ -33,12 +33,13 @@ async function logToSheet({ receivedAt, paymentDate, userId, displayName, groupI
       paymentMethod ?? "",
       items ?? "",
       remarks ?? "",
+      categoryAuto,
     ],
   ];
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:J`,
+    range: `${SHEET_NAME}!A:K`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values },

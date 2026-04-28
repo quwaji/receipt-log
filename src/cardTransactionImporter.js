@@ -3,6 +3,7 @@ const { listCsvFiles, downloadFile, moveFile } = require("./bankDriveHelper");
 const { loadCardMapping, parseCardCSV } = require("./cardCsvParser");
 const { getExistingCardTransactions, filterCardDuplicates } = require("./cardTransactionDedup");
 const { logResult } = require("./logger");
+const { categorizeTransactions } = require("./categoryService");
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 
@@ -136,6 +137,15 @@ async function processSingleFile(
     fileResult.duplicateRows = duplicate.length;
 
     if (unique.length > 0) {
+      try {
+        const descriptions = unique.map((t) => t.storeName);
+        const categories = await categorizeTransactions(spreadsheetId, descriptions);
+        unique.forEach((t, i) => { t.categoryAuto = categories[i]; });
+      } catch (err) {
+        console.warn("カード取引カテゴリ判定失敗:", err.message);
+        unique.forEach((t) => { t.categoryAuto = "その他"; });
+      }
+
       await appendCardTransactionsToSheet(spreadsheetId, cardName, unique);
       fileResult.importedRows = unique.length;
 
@@ -190,11 +200,12 @@ async function appendCardTransactionsToSheet(spreadsheetId, cardName, transactio
     t.totalAmount,
     t.paymentMonth,
     cardName,
+    t.categoryAuto ?? "",
   ]);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:I`,
+    range: `${sheetName}!A:J`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values },

@@ -292,7 +292,7 @@ Content-Type: application/json
 
 ### receipts シート（レシート記録）
 
-追記範囲: `{SHEET_NAME}!A:J`
+追記範囲: `{SHEET_NAME}!A:K`
 
 | 列 | タイプ | 項目 | 例 |
 |----|--------|------|----|
@@ -306,6 +306,7 @@ Content-Type: application/json
 | H | String | 支払い方法 | `現金` |
 | I | String | 品目（改行区切り）| `おにぎり 150円\nコーヒー 180円` |
 | J | String | 備考 | `支払い日時はレシートから読み取れなかったため受信日時を使用` |
+| K | String | カテゴリ（自動）| `食費` |
 
 ### bank trans シート（銀行取引）
 
@@ -324,7 +325,7 @@ Content-Type: application/json
 
 ### card trans シート（カード利用明細）
 
-追記範囲: `{CARD_TRANS_SHEET_NAME}!A:I`
+追記範囲: `{CARD_TRANS_SHEET_NAME}!A:J`
 
 | 列 | タイプ | 項目 | 例 |
 |----|--------|------|----|
@@ -337,6 +338,25 @@ Content-Type: application/json
 | G | Number | 支払総額 | `3002` |
 | H | String | 支払月 | `5月` |
 | I | String | カード名 | `楽天カード` |
+| J | String | カテゴリ（自動）| `食費` |
+
+### category rules シート（カテゴリルール）
+
+追記範囲: `{CATEGORY_RULES_SHEET_NAME}!A:D`
+
+| 列 | タイプ | 項目 | 例 |
+|----|--------|------|----|
+| A | String | キーワード | `セブン` |
+| B | String | カテゴリ | `食費` |
+| C | String | 登録日時 | `2026/04/10 15:33:01` |
+| D | String | ソース | `Gemini` |
+
+**カテゴリ一覧:** `食費 / 日用品 / 交通費 / 通信費 / 光熱費 / 医療 / 娯楽 / 衣類 / 教育 / 保険 / 住居費 / その他`
+
+**動作仕様:**
+- 未知の店名が出現した場合、Gemini が判定してこのシートに自動追加
+- キーワードは部分一致で照合（大文字・小文字区別なし）
+- 手動でルールを追加・修正することも可能
 
 ### logs シート（インポート処理ログ）
 
