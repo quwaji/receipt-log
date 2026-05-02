@@ -1,10 +1,12 @@
 require('dotenv').config({ path: process.env.DOTENV_PATH || '.env.local' });
 
+const path = require("path");
 const express = require("express");
 const { middleware, Client } = require("@line/bot-sdk");
 const { handleEvent } = require("./lineHandler");
 const { importBankTransactions } = require("./bankTransactionImporter");
 const { importCardTransactions } = require("./cardTransactionImporter");
+const { aggregateByMonth } = require("./aggregationService");
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -12,6 +14,9 @@ const config = {
 };
 
 const app = express();
+
+// 静的ファイル配信（SPA）
+app.use(express.static(path.join(__dirname, "..", "public")));
 
 app.post("/webhook", middleware(config), (req, res) => {
   // すぐにレスポンスを返す（LINE のタイムアウト防止）
@@ -23,6 +28,28 @@ app.post("/webhook", middleware(config), (req, res) => {
       console.error("イベント処理エラー:", err);
     });
   });
+});
+
+/**
+ * 月別集計 API
+ * GET /summary?month=YYYY-MM
+ */
+app.get("/summary", async (req, res) => {
+  const { month } = req.query;
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ error: "month パラメータが必要です（例: 2026-04）" });
+  }
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) {
+    return res.status(500).json({ error: "SPREADSHEET_ID が設定されていません" });
+  }
+  try {
+    const data = await aggregateByMonth(spreadsheetId, month);
+    res.json(data);
+  } catch (err) {
+    console.error("/summary エラー:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /**

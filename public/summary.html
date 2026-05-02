@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>月別集計</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --primary: #4A90D9;
+      --income-color: #27ae60;
+      --text: #2c3e50;
+      --text-muted: #7f8c8d;
+      --border: #e8ecef;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── ヘッダー ── */
+    header {
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    .nav-btn {
+      background: rgba(255,255,255,.2);
+      border: none;
+      color: #fff;
+      font-size: 18px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s;
+    }
+    .nav-btn:active { background: rgba(255,255,255,.35); }
+    #month-title { font-size: 18px; font-weight: 700; }
+
+    /* ── メインコンテンツ ── */
+    main { padding: 16px; max-width: 480px; margin: 0 auto; }
+
+    /* ── サマリーカード ── */
+    .summary-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .card-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .card-amount {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .card.income .card-amount { color: var(--income-color); }
+
+    /* ── グラフセクション ── */
+    .chart-section {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .chart-wrapper {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      margin: 0 auto 8px;
+    }
+    .chart-center-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+    }
+    .chart-center-label .center-sub { font-size: 11px; color: var(--text-muted); }
+    .chart-center-label .center-val { font-size: 17px; font-weight: 700; }
+
+    /* ── カテゴリリスト ── */
+    .list-section {
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .list-section-title {
+      padding: 14px 16px 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+    }
+    .category-row {
+      display: flex;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .1s;
+      gap: 12px;
+    }
+    .category-row:last-child { border-bottom: none; }
+    .category-row:active { background: #f8f9fa; }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .cat-info { flex: 1; min-width: 0; }
+    .cat-name {
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cat-count { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .cat-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .cat-amount { font-size: 15px; font-weight: 700; }
+    .chevron { color: var(--text-muted); font-size: 14px; }
+
+    /* ── 入金行 ── */
+    .income-row .cat-amount { color: var(--income-color); }
+
+    /* ── ドリルダウンシート ── */
+    .sheet-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.4);
+      z-index: 100;
+    }
+    .sheet-overlay.open { display: block; }
+    .sheet {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-radius: 20px 20px 0 0;
+      max-height: 75vh;
+      display: flex;
+      flex-direction: column;
+      transform: translateY(100%);
+      transition: transform .28s cubic-bezier(.32,1,.32,1);
+      z-index: 101;
+    }
+    .sheet.open { transform: translateY(0); }
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin: 12px auto 0;
+      flex-shrink: 0;
+    }
+    .sheet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sheet-header-left { display: flex; align-items: center; gap: 10px; }
+    .sheet-title { font-size: 16px; font-weight: 700; }
+    .sheet-total { font-size: 14px; color: var(--text-muted); }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 20px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+    }
+    .sheet-body { overflow-y: auto; flex: 1; padding-bottom: 16px; }
+
+    /* ── 明細行 ── */
+    .tx-row {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px 12px;
+      align-items: start;
+    }
+    .tx-row:last-child { border-bottom: none; }
+    .tx-label {
+      font-size: 14px;
+      font-weight: 500;
+      grid-column: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tx-amount {
+      font-size: 14px;
+      font-weight: 700;
+      grid-column: 2;
+      grid-row: 1 / 3;
+      align-self: center;
+      white-space: nowrap;
+    }
+    .tx-meta {
+      grid-column: 1;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .tx-date { font-size: 12px; color: var(--text-muted); }
+    .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+    .badge-receipt { background: #fff3cd; color: #856404; }
+    .badge-bank    { background: #d1ecf1; color: #0c5460; }
+    .badge-card    { background: #e2d9f3; color: #5a1a8a; }
+    .tx-detail { font-size: 12px; color: var(--text-muted); }
+
+    /* ── ローディング / エラー ── */
+    .state-msg {
+      text-align: center;
+      padding: 48px 16px;
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── 空状態 ── */
+    .empty { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <button class="nav-btn" id="prev-btn" title="前月">&#8249;</button>
+  <span id="month-title">読み込み中…</span>
+  <button class="nav-btn" id="next-btn" title="翌月">&#8250;</button>
+</header>
+
+<main id="main">
+  <div class="state-msg"><div class="spinner"></div>読み込み中…</div>
+</main>
+
+<!-- ドリルダウンシート -->
+<div class="sheet-overlay" id="overlay"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="sheet-header-left">
+      <span class="dot" id="sheet-dot" style="width:14px;height:14px;"></span>
+      <span class="sheet-title" id="sheet-title"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="sheet-total" id="sheet-total"></span>
+      <button class="close-btn" id="close-btn">&#x2715;</button>
+    </div>
+  </div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<script>
+const PALETTE = [
+  "#4A90D9","#E8734A","#27AE60","#F1C40F","#9B59B6",
+  "#1ABC9C","#E74C3C","#3498DB","#F39C12","#2ECC71",
+  "#8E44AD","#16A085"
+];
+const SOURCE_LABELS = { receipt: "レシート", bank: "銀行", card: "カード" };
+const BADGE_CLASSES = { receipt: "badge-receipt", bank: "badge-bank", card: "badge-card" };
+
+let currentMonth = getMonthFromUrl();
+let chartInstance = null;
+let currentData = null;
+
+function getMonthFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const m = p.get("month");
+  if (m && /^\d{4}-\d{2}$/.test(m)) return m;
+  // デフォルト: 先月
+  const now = new Date();
+  const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  const mo = now.getMonth() === 0 ? 12 : now.getMonth();
+  return `${y}-${String(mo).padStart(2, "0")}`;
+}
+
+function setMonthInUrl(month) {
+  const u = new URL(location.href);
+  u.searchParams.set("month", month);
+  history.replaceState(null, "", u.toString());
+}
+
+function offsetMonth(month, delta) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonth(month) {
+  const [y, m] = month.split("-");
+  return `${y}年${parseInt(m)}月`;
+}
+
+function fmt(n) {
+  return "¥" + Math.round(n).toLocaleString();
+}
+
+async function loadData(month) {
+  setMonthInUrl(month);
+  document.getElementById("month-title").textContent = formatMonth(month);
+  document.getElementById("main").innerHTML =
+    '<div class="state-msg"><div class="spinner"></div>読み込み中…</div>';
+
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+
+  let data;
+  try {
+    const res = await fetch(`/summary?month=${month}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (e) {
+    document.getElementById("main").innerHTML =
+      `<div class="state-msg">データの取得に失敗しました。<br><small>${e.message}</small></div>`;
+    return;
+  }
+
+  currentData = data;
+  render(data);
+}
+
+function render(data) {
+  const main = document.getElementById("main");
+
+  const sortedCats = Object.entries(data.categories).sort(([,a],[,b]) => b.total - a.total);
+  const hasExpense = sortedCats.length > 0;
+  const hasIncome = data.incomeTotal > 0;
+
+  if (!hasExpense && !hasIncome) {
+    main.innerHTML = '<div class="empty">この月のデータはありません</div>';
+    return;
+  }
+
+  // カラーマップ（カテゴリ名 → 色）
+  const colorMap = {};
+  sortedCats.forEach(([name], i) => {
+    colorMap[name] = PALETTE[i % PALETTE.length];
+  });
+
+  let html = "";
+
+  // ── サマリーカード ──
+  html += `
+    <div class="summary-cards">
+      <div class="card">
+        <div class="card-label">支出合計</div>
+        <div class="card-amount">${fmt(data.expenseTotal)}</div>
+      </div>
+      <div class="card income">
+        <div class="card-label">入金合計</div>
+        <div class="card-amount">${fmt(data.incomeTotal)}</div>
+      </div>
+    </div>`;
+
+  // ── ドーナツグラフ ──
+  if (hasExpense) {
+    html += `
+      <div class="chart-section">
+        <div class="section-title">支出内訳</div>
+        <div class="chart-wrapper">
+          <canvas id="donut"></canvas>
+          <div class="chart-center-label">
+            <div class="center-sub">支出合計</div>
+            <div class="center-val">${fmt(data.expenseTotal)}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── カテゴリリスト ──
+  if (hasExpense) {
+    html += `<div class="list-section"><div class="list-section-title">支出カテゴリ</div>`;
+    for (const [name, cat] of sortedCats) {
+      const color = colorMap[name];
+      const pct = data.expenseTotal > 0
+        ? Math.round(cat.total / data.expenseTotal * 100) : 0;
+      html += `
+        <div class="category-row" data-cat="${escHtml(name)}">
+          <span class="dot" style="background:${color}"></span>
+          <div class="cat-info">
+            <div class="cat-name">${escHtml(name)}</div>
+            <div class="cat-count">${cat.transactions.length}件 ・ ${pct}%</div>
+          </div>
+          <div class="cat-right">
+            <span class="cat-amount">${fmt(cat.total)}</span>
+            <span class="chevron">›</span>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // ── 入金 ──
+  if (hasIncome) {
+    html += `
+      <div class="list-section">
+        <div class="list-section-title">入金</div>
+        <div class="category-row income-row" data-cat="__income__">
+          <span class="dot" style="background:${PALETTE[11]}"></span>
+          <div class="cat-info">
+            <div class="cat-name">入金</div>
+            <div class="cat-count">${data.income.transactions.length}件</div>
+          </div>
+          <div class="cat-right">
+            <span class="cat-amount" style="color:var(--income-color)">${fmt(data.incomeTotal)}</span>
+            <span class="chevron">›</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  main.innerHTML = html;
+
+  // グラフ描画
+  if (hasExpense) {
+    const ctx = document.getElementById("donut").getContext("2d");
+    chartInstance = new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels: sortedCats.map(([n]) => n),
+        datasets: [{
+          data: sortedCats.map(([, c]) => c.total),
+          backgroundColor: sortedCats.map(([n]) => colorMap[n]),
+          borderWidth: 2,
+          borderColor: "#fff",
+          hoverOffset: 4,
+        }],
+      },
+      options: {
+        cutout: "62%",
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.label}: ${fmt(ctx.raw)}`,
+            },
+          },
+        },
+        onClick: (e, els) => {
+          if (els.length) {
+            const name = sortedCats[els[0].index][0];
+            openSheet(name, colorMap[name], currentData);
+          }
+        },
+      },
+    });
+  }
+
+  // カテゴリ行クリック
+  main.querySelectorAll(".category-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const cat = row.dataset.cat;
+      const color = cat === "__income__"
+        ? PALETTE[11]
+        : (colorMap[cat] || "#ccc");
+      openSheet(cat, color, currentData);
+    });
+  });
+}
+
+function openSheet(catKey, color, data) {
+  const isIncome = catKey === "__income__";
+  const transactions = isIncome
+    ? data.income.transactions
+    : (data.categories[catKey]?.transactions || []);
+  const total = isIncome ? data.incomeTotal : (data.categories[catKey]?.total || 0);
+
+  document.getElementById("sheet-dot").style.background = color;
+  document.getElementById("sheet-title").textContent = isIncome ? "入金" : catKey;
+  document.getElementById("sheet-total").textContent = fmt(total);
+
+  const body = document.getElementById("sheet-body");
+  if (transactions.length === 0) {
+    body.innerHTML = '<div class="empty">明細なし</div>';
+  } else {
+    body.innerHTML = transactions.map(tx => `
+      <div class="tx-row">
+        <div class="tx-label">${escHtml(tx.label || "（不明）")}</div>
+        <div class="tx-amount">${isIncome ? "+" : ""}${fmt(tx.amount)}</div>
+        <div class="tx-meta">
+          <span class="tx-date">${escHtml(tx.date)}</span>
+          <span class="badge ${BADGE_CLASSES[tx.source] || ""}">${SOURCE_LABELS[tx.source] || tx.source}</span>
+          ${tx.detail ? `<span class="tx-detail">${escHtml(tx.detail)}</span>` : ""}
+        </div>
+      </div>
+    `).join("");
+  }
+
+  document.getElementById("overlay").classList.add("open");
+  document.getElementById("sheet").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeSheet() {
+  document.getElementById("overlay").classList.remove("open");
+  document.getElementById("sheet").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ── イベントリスナー ──
+document.getElementById("prev-btn").addEventListener("click", () => {
+  currentMonth = offsetMonth(currentMonth, -1);
+  loadData(currentMonth);
+});
+document.getElementById("next-btn").addEventListener("click", () => {
+  currentMonth = offsetMonth(currentMonth, 1);
+  loadData(currentMonth);
+});
+document.getElementById("close-btn").addEventListener("click", closeSheet);
+document.getElementById("overlay").addEventListener("click", closeSheet);
+
+// スワイプで閉じる
+let touchStartY = 0;
+document.getElementById("sheet").addEventListener("touchstart", e => {
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+document.getElementById("sheet").addEventListener("touchend", e => {
+  if (e.changedTouches[0].clientY - touchStartY > 60) closeSheet();
+}, { passive: true });
+
+// 初回ロード
+loadData(currentMonth);
+</script>
+</body>
+</html>
