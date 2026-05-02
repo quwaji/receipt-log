@@ -96,11 +96,11 @@ async function aggregateByMonth(spreadsheetId, month) {
     });
   }
 
-  // カテゴリ内をそれぞれ日付降順でソート
+  // カテゴリ内をそれぞれ日付昇順でソート
   for (const cat of Object.values(categories)) {
-    cat.transactions.sort((a, b) => (b.date > a.date ? 1 : -1));
+    cat.transactions.sort((a, b) => (a.date > b.date ? 1 : -1));
   }
-  income.transactions.sort((a, b) => (b.date > a.date ? 1 : -1));
+  income.transactions.sort((a, b) => (a.date > b.date ? 1 : -1));
 
   const expenseTotal = Object.values(categories).reduce((s, c) => s + c.total, 0);
 

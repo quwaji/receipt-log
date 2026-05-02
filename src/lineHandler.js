@@ -23,7 +23,7 @@ async function handleEvent(event, client) {
  */
 async function handleTextMessage(event, client) {
   const text = event.message.text;
-  if (!text.includes("先月の集計")) return;
+  if (!text.includes("集計")) return;
 
   const replyToken = event.replyToken;
   const spreadsheetId = process.env.SPREADSHEET_ID;
