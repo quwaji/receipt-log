@@ -24,6 +24,7 @@
         │  │  - /webhook      (POST)      │   │
         │  │  - /bank/import  (POST)      │   │
         │  │  - /card/import  (POST)      │   │
+        │  │  - /summary      (GET)       │   │
         │  │  - /health       (GET)       │   │
         │  └────────┬──────────┬──────────┘   │
         │           │          │              │
@@ -52,6 +53,8 @@
 - `POST /webhook` — LINE のイベント受信（middleware で署名検証）
 - `POST /bank/import` — 銀行取引 CSV インポート
 - `POST /card/import` — カード利用明細 CSV インポート
+- `GET /summary?month=YYYY-MM` — 月別集計 JSON
+- `GET /summary.html` — 月別集計 SPA（静的ファイル配信）
 - `GET /health` — ヘルスチェック
 
 **環境変数:**
@@ -65,6 +68,7 @@ BANK_TRANS_SHEET_NAME        # 銀行取引シート名（default: bank trans）
 CARD_TRANS_SHEET_NAME        # カード取引シート名（default: card trans）
 LOGS_SHEET_NAME              # ログシート名（default: logs）
 CATEGORY_RULES_SHEET_NAME    # カテゴリルールシート名（default: category rules）
+LIFF_URL                     # LIFF アプリの URL（設定時は集計返信にボタンを追加）
 BANK_FOLDER_ID               # 銀行 CSV を置く Google Drive フォルダ ID
 CARD_FOLDER_ID               # カード CSV を置く Google Drive フォルダ ID
 GOOGLE_SERVICE_ACCOUNT_JSON  # GCP サービスアカウント認証情報
@@ -80,7 +84,11 @@ GOOGLE_SERVICE_ACCOUNT_JSON  # GCP サービスアカウント認証情報
 Event 受信
   ↓
 [メッセージタイプ判定]
-  ├─ 画像以外 → 無視して終了
+  ├─ テキストメッセージ（「集計」を含む）
+  │   └─ aggregationService で先月集計
+  │       → テキスト返信 + LIFF ボタン（LIFF_URL 設定時）
+  │
+  ├─ 画像以外（テキストで「集計」を含まない等）→ 無視して終了
   │
   └─ 画像メッセージ
       ↓
@@ -145,7 +153,55 @@ Event 受信
 
 ---
 
-### 5. カテゴリサービス (`src/categoryService.js`)
+### 5. 集計サービス (`src/aggregationService.js`)
+
+**役割:** receipts / bank trans / card trans の 3 シートから月別集計データを構築
+
+**フロー:**
+
+```
+[3 シートを並行読み込み]
+  ↓
+[各行をフィルタリング]
+  ├─ 対象月の行のみ抽出（日付列で判定）
+  └─ 除外列にテキストがある行をスキップ
+      receipts: L列 / bank trans: I列 / card trans: K列
+  ↓
+[集計]
+  ├─ receipts: カテゴリ（K列）別に金額（G列）を合算
+  ├─ bank trans:
+  │   ├─ 区分（C列）=「入金」→ 入金合計に計上
+  │   └─ それ以外 → カテゴリ（G列）別に金額（B列）を合算
+  └─ card trans: カテゴリ（J列）別に金額（E列）を合算
+  ↓
+[明細を日付昇順でソート]
+```
+
+**レスポンス形式:**
+```json
+{
+  "month": "2026-04",
+  "expenseTotal": 86530,
+  "incomeTotal": 350000,
+  "categories": {
+    "食費": {
+      "total": 45230,
+      "transactions": [
+        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280,
+          "source": "receipt", "detail": "田中太郎" }
+      ]
+    }
+  },
+  "income": {
+    "total": 350000,
+    "transactions": [...]
+  }
+}
+```
+
+---
+
+### 6. カテゴリサービス (`src/categoryService.js`)
 
 **役割:** レシート・銀行・カードの全トランザクションにカテゴリを自動付与
 
@@ -175,7 +231,7 @@ Event 受信
 
 ---
 
-### 6. 銀行取引インポート・カード利用明細インポート
+### 7. 銀行取引インポート・カード利用明細インポート
 
 #### 銀行取引フロー（`POST /bank/import`）
 

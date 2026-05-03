@@ -12,6 +12,7 @@ LINE グループ内で共有されたレシート画像を自動で解析し、
 - **銀行取引インポート** — Shift-JIS の CSV に対応、銀行ごとのマッピング設定で複数口座を管理
 - **カード利用明細インポート** — 楽天カード等の CSV に対応、カードごとのマッピング設定で複数カードを管理
 - **カテゴリ自動判定** — ルールベース＋Gemini のハイブリッドで全トランザクションにカテゴリを付与。既知の店名はルールで即判定し、未知の店名のみ Gemini に問い合わせて `category rules` シートに蓄積
+- **月別集計** — 「集計」と投稿するとカテゴリ別支出・入金合計をテキスト返信。LIFF SPA でドーナツグラフ・ドリルダウン・月ナビゲーションを提供
 
 ## 使い方
 
@@ -56,15 +57,39 @@ curl -X POST https://{cloud-run-url}/card/import
 - 重複キー: 利用日 + 利用店名 + 利用者 + 利用金額
 - 処理結果は logs シートに記録（処理名: `card trans`）
 
+### ④ 月別集計
+
+LINE グループで「集計」と投稿するとカテゴリ別支出と入金合計をテキストで返信します。
+
+```
+📊 2026年4月の集計
+
+【支出カテゴリ別】
+食費　¥45,230
+日用品　¥12,800
+交通費　¥8,500
+──────────────
+支出合計　¥67,760
+
+【入金】
+入金合計　¥350,000
+```
+
+`LIFF_URL` を設定すると「📊 グラフで見る」ボタンも返信します。ボタンから開く SPA では前月・翌月ナビゲーション、カテゴリ別ドーナツグラフ、タップで明細ドリルダウンが利用できます。
+
+- 各シートの「除外」列（receipts: L列 / bank trans: I列 / card trans: K列）にテキストがある行は集計から除外
+- bank trans の区分「入金」は支出と分離して入金合計に計上
+
 ## システム構成
 
 ```
 LINE Bot
-  ↓ (webhook)
+  ↓ (webhook / text)
 ├─ Cloud Run (Express)
-   ├─ Gemini 2.5 Flash (レシート解析)
-   ├─ Google Sheets API (記録)
-   └─ Google Drive API (CSV 取得)
+   ├─ Gemini 2.5 Flash (レシート解析・カテゴリ判定)
+   ├─ Google Sheets API (記録・集計)
+   ├─ Google Drive API (CSV 取得)
+   └─ public/summary.html (LIFF SPA)
 ```
 
 **無料枠:**
@@ -77,10 +102,11 @@ LINE Bot
 
 ```
 src/
-├── index.js                   # Express サーバー + Webhook / bank/import / card/import エンドポイント
-├── lineHandler.js             # LINE イベント処理（画像受信・ユーザー取得）
+├── index.js                   # Express サーバー + 全エンドポイント + 静的ファイル配信
+├── lineHandler.js             # LINE イベント処理（画像受信・テキスト「集計」対応）
 ├── geminiParser.js            # Gemini でレシート画像を構造化データに変換
 ├── sheetsLogger.js            # receipts シートに記録
+├── aggregationService.js      # 月別集計（receipts / bank trans / card trans）
 ├── bankTransactionImporter.js # 銀行取引インポート処理のオーケストレーション
 ├── bankCsvParser.js           # 銀行 CSV パース（Shift-JIS 対応・半角カナ全角変換）
 ├── bankTransactionDedup.js    # 銀行取引の重複チェック
@@ -90,6 +116,9 @@ src/
 ├── cardTransactionDedup.js    # カード取引の重複チェック
 ├── categoryService.js         # カテゴリ自動判定（ルール照合 + Gemini バッチ）
 └── logger.js                  # logs シートへの処理結果記録
+
+public/
+└── summary.html               # 月別集計 SPA（LIFF・Chart.js CDN）
 
 conf/
 ├── bank_mapping/              # 銀行ごとのマッピング設定
@@ -116,6 +145,7 @@ Dockerfile           # Cloud Run デプロイ用
 3. `gcloud run deploy --source .` でデプロイ
 4. Webhook URL を LINE に設定
 5. ボットをグループに追加
+6. （任意）LINE Login チャンネルを作成し LIFF アプリを登録 → `LIFF_URL` を環境変数に設定
 
 ## 技術スタック
 
@@ -143,6 +173,8 @@ Dockerfile           # Cloud Run デプロイ用
 | H | 支払い方法 |
 | I | 品目 |
 | J | 備考 |
+| K | カテゴリ（自動）|
+| L | 除外（集計から除く場合に記入）|
 
 ### card trans シート（カード利用明細）
 
@@ -157,6 +189,8 @@ Dockerfile           # Cloud Run デプロイ用
 | G | 支払総額 |
 | H | 支払月 |
 | I | カード名 |
+| J | カテゴリ（自動）|
+| K | 除外（集計から除く場合に記入）|
 
 ### bank trans シート（銀行取引）
 
@@ -170,6 +204,7 @@ Dockerfile           # Cloud Run デプロイ用
 | F | コメント |
 | G | カテゴリ（自動）|
 | H | 銀行名 |
+| I | 除外（集計から除く場合に記入）|
 
 ### logs シート（インポート処理ログ）
 
