@@ -140,7 +140,10 @@ async function processSingleFile(
       try {
         const descriptions = unique.map((t) => t.storeName);
         const categories = await categorizeTransactions(spreadsheetId, descriptions);
-        unique.forEach((t, i) => { t.categoryAuto = categories[i]; });
+        unique.forEach((t, i) => {
+          t.categoryAuto = categories[i];
+          if (t.categoryAuto === "除外") t.excludeAuto = "自動除外";
+        });
       } catch (err) {
         console.warn("カード取引カテゴリ判定失敗:", err.message);
         unique.forEach((t) => { t.categoryAuto = "その他"; });
@@ -201,11 +204,12 @@ async function appendCardTransactionsToSheet(spreadsheetId, cardName, transactio
     t.paymentMonth,
     cardName,
     t.categoryAuto ?? "",
+    t.excludeAuto ?? "",
   ]);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:J`,
+    range: `${sheetName}!A:K`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values },
