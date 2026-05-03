@@ -1,6 +1,7 @@
 const { parseReceipt } = require("./geminiParser");
 const { logToSheet } = require("./sheetsLogger");
 const { categorizeTransactions } = require("./categoryService");
+const { aggregateByMonth, getLastMonth } = require("./aggregationService");
 
 /**
  * LINE イベントを処理する
@@ -8,11 +9,97 @@ const { categorizeTransactions } = require("./categoryService");
  * @param {object} client - LINE Bot SDK クライアント
  */
 async function handleEvent(event, client) {
-  // 画像メッセージ以外は無視
-  if (event.type !== "message" || event.message.type !== "image") {
+  if (event.type !== "message") return;
+
+  if (event.message.type === "text") {
+    await handleTextMessage(event, client);
+  } else if (event.message.type === "image") {
+    await handleImageMessage(event, client);
+  }
+}
+
+/**
+ * テキストメッセージを処理する
+ */
+async function handleTextMessage(event, client) {
+  const text = event.message.text;
+  if (!text.includes("集計")) return;
+
+  const replyToken = event.replyToken;
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  const month = getLastMonth();
+
+  let data;
+  try {
+    data = await aggregateByMonth(spreadsheetId, month);
+  } catch (err) {
+    console.error("集計失敗:", err);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: "集計中にエラーが発生しました。",
+    });
     return;
   }
 
+  const [year, m] = month.split("-");
+  const title = `📊 ${year}年${parseInt(m)}月の集計`;
+
+  // カテゴリ別支出を金額降順で整形
+  const sortedCategories = Object.entries(data.categories).sort(
+    ([, a], [, b]) => b.total - a.total
+  );
+
+  let categoryLines = sortedCategories
+    .map(([name, c]) => `${name}　¥${c.total.toLocaleString()}`)
+    .join("\n");
+
+  if (!categoryLines) categoryLines = "（データなし）";
+
+  const summaryText =
+    `${title}\n\n` +
+    `【支出カテゴリ別】\n${categoryLines}\n` +
+    `──────────────\n` +
+    `支出合計　¥${data.expenseTotal.toLocaleString()}\n\n` +
+    `【入金】\n入金合計　¥${data.incomeTotal.toLocaleString()}`;
+
+  const messages = [{ type: "text", text: summaryText }];
+
+  const liffUrl = process.env.LIFF_URL;
+  if (liffUrl) {
+    messages.push({
+      type: "flex",
+      altText: "グラフで見る",
+      contents: {
+        type: "bubble",
+        size: "kilo",
+        body: {
+          type: "box",
+          layout: "vertical",
+          paddingAll: "md",
+          contents: [
+            {
+              type: "button",
+              action: {
+                type: "uri",
+                label: "📊 グラフで見る",
+                uri: `${liffUrl}?month=${month}`,
+              },
+              style: "primary",
+              color: "#4A90D9",
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  await client.replyMessage(replyToken, messages);
+}
+
+/**
+ * 画像メッセージを処理する（レシート記録）
+ */
+async function handleImageMessage(event, client) {
   const userId = event.source.userId;
   const groupId = event.source.groupId ?? null;
   const replyToken = event.replyToken;

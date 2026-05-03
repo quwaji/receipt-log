@@ -7,7 +7,76 @@
 | POST | `/webhook` | LINE Messaging API からのイベント受信 |
 | POST | `/bank/import` | 銀行取引 CSV インポート |
 | POST | `/card/import` | カード利用明細 CSV インポート |
+| GET | `/summary` | 月別集計 JSON |
+| GET | `/summary.html` | 月別集計 SPA |
 | GET | `/health` | ヘルスチェック |
+
+---
+
+## GET /summary
+
+指定月のカテゴリ別集計データを返します。SPA および LINE Bot の集計返信で使用します。
+
+**リクエスト:**
+
+```
+GET https://{cloud-run-url}/summary?month=2026-04
+```
+
+**レスポンス（成功）:**
+
+```json
+{
+  "month": "2026-04",
+  "expenseTotal": 67760,
+  "incomeTotal": 350000,
+  "categories": {
+    "食費": {
+      "total": 45230,
+      "transactions": [
+        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280, "source": "receipt", "detail": "田中太郎" },
+        { "date": "2026/04/12", "label": "マルエツ", "amount": 3240, "source": "card", "detail": "楽天カード" }
+      ]
+    },
+    "交通費": {
+      "total": 8500,
+      "transactions": [...]
+    }
+  },
+  "income": {
+    "total": 350000,
+    "transactions": [
+      { "date": "2026/04/25", "label": "給与", "amount": 350000, "source": "bank", "detail": "共通口座（埼玉りそな）" }
+    ]
+  }
+}
+```
+
+**`source` の値:**
+
+| 値 | 意味 |
+|----|------|
+| `receipt` | receipts シート（レシート画像） |
+| `bank` | bank trans シート（銀行取引） |
+| `card` | card trans シート（カード利用） |
+
+**除外ルール:**
+- 各シートの「除外」列にテキストがある行はスキップ（receipts: L列 / bank trans: I列 / card trans: K列）
+- bank trans の区分（C列）が「入金」の行は `categories` ではなく `income` に分類
+
+**エラー:**
+
+```json
+{ "error": "month パラメータが必要です（例: 2026-04）" }
+```
+
+---
+
+## GET /summary.html
+
+月別集計 SPA を返します。`?month=YYYY-MM` クエリパラメータで表示月を指定できます（省略時は先月）。
+
+LIFF アプリのエンドポイント URL として登録します。
 
 ---
 
@@ -307,6 +376,7 @@ Content-Type: application/json
 | I | String | 品目（改行区切り）| `おにぎり 150円\nコーヒー 180円` |
 | J | String | 備考 | `支払い日時はレシートから読み取れなかったため受信日時を使用` |
 | K | String | カテゴリ（自動）| `食費` |
+| L | String | 除外 | `除外`（集計から除く場合に任意のテキストを記入）|
 
 ### bank trans シート（銀行取引）
 
@@ -322,6 +392,7 @@ Content-Type: application/json
 | F | String | コメント | `` |
 | G | String | カテゴリ（自動）| `` |
 | H | String | 銀行名 | `共通口座（埼玉りそな）` |
+| I | String | 除外 | `除外`（集計から除く場合に任意のテキストを記入）|
 
 ### card trans シート（カード利用明細）
 
@@ -339,6 +410,7 @@ Content-Type: application/json
 | H | String | 支払月 | `5月` |
 | I | String | カード名 | `楽天カード` |
 | J | String | カテゴリ（自動）| `食費` |
+| K | String | 除外 | `除外`（集計から除く場合に任意のテキストを記入）|
 
 ### category rules シート（カテゴリルール）
 

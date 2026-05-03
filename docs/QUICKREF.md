@@ -49,6 +49,12 @@ receipt-log/
 │   │       照合キー: 利用日 + 利用店名 + 利用者 + 利用金額
 │   │       ※ファイル内重複はすべて取り込み、Sheets 既存データのみスキップ
 │   │
+│   ├── aggregationService.js
+│   │   └─ 月別集計（receipts / bank trans / card trans）
+│   │       - 除外列にテキストがある行をスキップ
+│   │       - bank trans の「入金」区分を支出から分離
+│   │       - getLastMonth() で先月を YYYY-MM 形式で返す
+│   │
 │   ├── categoryService.js
 │   │   └─ カテゴリ自動判定（ルール照合 + Gemini バッチ）
 │   │       ① category rules シートからキーワードを読み込み部分一致で判定
@@ -58,6 +64,12 @@ receipt-log/
 │   └── logger.js
 │       └─ logs シートへの処理結果記録
 │           範囲: {LOGS_SHEET_NAME}!A:I
+│
+├── public/
+│   └── summary.html             # 月別集計 SPA（Chart.js CDN、ビルド不要）
+│       - 前月・翌月ナビゲーション（?month= クエリで制御）
+│       - カテゴリ別ドーナツグラフ
+│       - ボトムシートでドリルダウン（スワイプで閉じる）
 │
 ├── conf/
 │   ├── bank_mapping/
@@ -99,6 +111,7 @@ receipt-log/
 | `CARD_FOLDER_ID` | カード CSV フォルダ ID | Drive の URL: `/folders/{ID}` |
 | `CARD_TRANS_SHEET_NAME` | カード取引シート名（default: card trans）| Google Sheets タブ名 |
 | `CATEGORY_RULES_SHEET_NAME` | カテゴリルールシート名（default: category rules）| Google Sheets タブ名 |
+| `LIFF_URL` | LIFF アプリの URL（任意）| LINE Developers > LINE Login チャンネル > LIFF |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | GCP サービスアカウント認証 | gcloud iam service-accounts keys create |
 
 ---
@@ -202,6 +215,16 @@ curl -X POST http://localhost:8080/card/import \
   -d '{"spreadsheetId": "...", "cardFolderId": "..."}'
 ```
 
+### 月別集計のローカルテスト
+
+```bash
+# JSON API
+curl "http://localhost:8080/summary?month=2026-04"
+
+# SPA をブラウザで確認
+open "http://localhost:8080/summary.html?month=2026-04"
+```
+
 ---
 
 ## エラー対応フローチャート
@@ -290,6 +313,16 @@ POST /card/import
 - [ ] category rules シートのルールが照合される（部分一致）
 - [ ] 未知の店名は Gemini で判定される
 - [ ] 新規ルールが category rules シートに自動追記される
+
+### 月別集計機能
+- [ ] `GET /summary?month=YYYY-MM` が正しい JSON を返すこと
+- [ ] SPA でグラフ・カテゴリリスト・入金が表示されること
+- [ ] 前月・翌月ナビゲーションが機能すること
+- [ ] カテゴリ・入金タップでドリルダウン明細が開くこと
+- [ ] 明細が日付昇順で表示されること
+- [ ] 除外列にテキストがある行が集計に含まれないこと
+- [ ] LINE で「集計」と送信するとテキスト集計が返ること
+- [ ] LIFF_URL 設定時に「グラフで見る」ボタンが返ること
 
 ---
 
