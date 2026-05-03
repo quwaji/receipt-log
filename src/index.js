@@ -7,6 +7,7 @@ const { handleEvent } = require("./lineHandler");
 const { importBankTransactions } = require("./bankTransactionImporter");
 const { importCardTransactions } = require("./cardTransactionImporter");
 const { aggregateByMonth } = require("./aggregationService");
+const { verifyLiffToken } = require("./liffAuth");
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -31,10 +32,20 @@ app.post("/webhook", middleware(config), (req, res) => {
 });
 
 /**
+ * SPA に LIFF ID を渡すための公開設定エンドポイント
+ * GET /config
+ */
+app.get("/config", (req, res) => {
+  const liffUrl = process.env.LIFF_URL || "";
+  const liffId = liffUrl.replace("https://liff.line.me/", "") || null;
+  res.json({ liffId });
+});
+
+/**
  * 月別集計 API
  * GET /summary?month=YYYY-MM
  */
-app.get("/summary", async (req, res) => {
+app.get("/summary", verifyLiffToken, async (req, res) => {
   const { month } = req.query;
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     return res.status(400).json({ error: "month パラメータが必要です（例: 2026-04）" });

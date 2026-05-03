@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>月別集計</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -332,6 +333,7 @@ const BADGE_CLASSES = { receipt: "badge-receipt", bank: "badge-bank", card: "bad
 let currentMonth = getMonthFromUrl();
 let chartInstance = null;
 let currentData = null;
+let idToken = null; // LIFF ID トークン（本番環境のみ）
 
 function getMonthFromUrl() {
   const p = new URLSearchParams(location.search);
@@ -365,6 +367,10 @@ function fmt(n) {
   return "¥" + Math.round(n).toLocaleString();
 }
 
+function authHeaders() {
+  return idToken ? { "Authorization": `Bearer ${idToken}` } : {};
+}
+
 async function loadData(month) {
   setMonthInUrl(month);
   document.getElementById("month-title").textContent = formatMonth(month);
@@ -375,7 +381,12 @@ async function loadData(month) {
 
   let data;
   try {
-    const res = await fetch(`/summary?month=${month}`);
+    const res = await fetch(`/summary?month=${month}`, { headers: authHeaders() });
+    if (res.status === 401) {
+      document.getElementById("main").innerHTML =
+        '<div class="state-msg">このページは LINE アプリから開いてください。</div>';
+      return;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     data = await res.json();
   } catch (e) {
@@ -595,8 +606,35 @@ document.getElementById("sheet").addEventListener("touchend", e => {
   if (e.changedTouches[0].clientY - touchStartY > 60) closeSheet();
 }, { passive: true });
 
-// 初回ロード
-loadData(currentMonth);
+// ── 初期化（LIFF 認証 → データロード）──
+async function init() {
+  let config = { liffId: null };
+  try {
+    const res = await fetch("/config");
+    config = await res.json();
+  } catch (_) {}
+
+  if (config.liffId) {
+    // 本番: LIFF 初期化してトークン取得
+    try {
+      await liff.init({ liffId: config.liffId });
+      if (!liff.isInClient()) {
+        document.getElementById("main").innerHTML =
+          '<div class="state-msg">このページは LINE アプリから開いてください。</div>';
+        return;
+      }
+      idToken = liff.getIDToken();
+    } catch (err) {
+      document.getElementById("main").innerHTML =
+        `<div class="state-msg">LIFF の初期化に失敗しました。<br><small>${err.message}</small></div>`;
+      return;
+    }
+  }
+  // 開発環境（liffId なし）はそのままロード
+  loadData(currentMonth);
+}
+
+init();
 </script>
 </body>
 </html>
