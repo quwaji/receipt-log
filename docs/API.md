@@ -8,8 +8,9 @@
 | POST | `/bank/import` | 銀行取引 CSV インポート |
 | POST | `/card/import` | カード利用明細 CSV インポート |
 | GET | `/summary` | 月別集計 JSON |
+| PATCH | `/transaction` | トランザクションのカテゴリ更新 |
 | GET | `/summary.html` | 月別集計 SPA |
-| GET | `/config` | SPA 向け設定（LIFF ID・認証フラグ）|
+| GET | `/config` | SPA 向け設定（LIFF ID・認証フラグ・カテゴリ一覧）|
 | GET | `/health` | ヘルスチェック |
 
 ---
@@ -35,8 +36,8 @@ GET https://{cloud-run-url}/summary?month=2026-04
     "食費": {
       "total": 45230,
       "transactions": [
-        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280, "source": "receipt", "detail": "田中太郎" },
-        { "date": "2026/04/12", "label": "マルエツ", "amount": 3240, "source": "card", "detail": "楽天カード" }
+        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280, "source": "receipt", "detail": "田中太郎", "category": "食費", "rowIndex": 5 },
+        { "date": "2026/04/12", "label": "マルエツ", "amount": 3240, "source": "card", "detail": "楽天カード", "category": "食費", "rowIndex": 12 }
       ]
     },
     "交通費": {
@@ -54,7 +55,7 @@ GET https://{cloud-run-url}/summary?month=2026-04
     "田中太郎": {
       "total": 18500,
       "transactions": [
-        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280, "source": "receipt", "detail": "食費・現金" }
+        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280, "source": "receipt", "detail": "食費・現金", "category": "食費", "rowIndex": 5 }
       ]
     },
     "山田花子": {
@@ -72,6 +73,18 @@ GET https://{cloud-run-url}/summary?month=2026-04
 | `receipt` | receipts シート（レシート画像） |
 | `bank` | bank trans シート（銀行取引） |
 | `card` | card trans シート（カード利用） |
+
+**各トランザクションの共通フィールド:**
+
+| フィールド | 説明 |
+|-----------|------|
+| `date` | 日付文字列 |
+| `label` | 店名・摘要 |
+| `amount` | 金額（円）|
+| `source` | `receipt` / `bank` / `card` |
+| `detail` | 補足情報（表示名・銀行名など）|
+| `category` | 現在のカテゴリ名 |
+| `rowIndex` | スプレッドシートの行番号（`PATCH /transaction` で使用）|
 
 **`members` フィールド:**
 - receipts シートのみ集計（表示名 D列でグループ化）
@@ -100,14 +113,15 @@ LIFF アプリのエンドポイント URL として登録します。
 
 ## GET /config
 
-SPA が起動時に呼び出す設定エンドポイント。認証要否と LIFF ID を返します。
+SPA が起動時に呼び出す設定エンドポイント。認証要否・LIFF ID・カテゴリ一覧を返します。
 
 **レスポンス:**
 
 ```json
 {
   "liffId": "2xxxxxxxx-xxxxxxxx",
-  "authRequired": true
+  "authRequired": true,
+  "categories": ["食費", "日用品", "交通費", "通信費", "光熱費", "医療", "娯楽", "衣類", "教育", "保険", "住居費", "その他"]
 }
 ```
 
@@ -115,8 +129,71 @@ SPA が起動時に呼び出す設定エンドポイント。認証要否と LIF
 |-----------|------|
 | `liffId` | LIFF URL から抽出した ID。`LIFF_URL` 未設定時は `null` |
 | `authRequired` | `NODE_ENV=production` かつ `LIFF_CHANNEL_ID` 設定時のみ `true` |
+| `categories` | カテゴリ選択UIで使用するカテゴリ一覧（`src/categoryService.js` の `CATEGORIES` 定数）|
 
 `authRequired` が `false`（開発環境）の場合、SPA は LIFF 初期化をスキップして直接データを取得します。
+
+---
+
+## PATCH /transaction
+
+指定トランザクションのカテゴリを更新し、スプレッドシートの備考列に変更履歴を追記します。本番環境では LIFF ID トークン認証必須（`verifyLiffToken`）。
+
+**リクエスト:**
+
+```
+PATCH https://{cloud-run-url}/transaction
+Content-Type: application/json
+Authorization: Bearer {liff_id_token}  ← 本番のみ必須
+```
+
+**リクエストボディ:**
+
+```json
+{
+  "source": "receipt",
+  "rowIndex": 5,
+  "category": "日用品",
+  "oldCategory": "食費",
+  "displayName": "田中太郎"
+}
+```
+
+| フィールド | 必須 | 説明 |
+|-----------|------|------|
+| `source` | ✅ | `receipt` / `bank` / `card` |
+| `rowIndex` | ✅ | スプレッドシートの行番号（`/summary` レスポンスの `rowIndex` を使用）|
+| `category` | ✅ | 新しいカテゴリ名（`CATEGORIES` 定数内の値のみ受け付け）|
+| `oldCategory` | | 変更前のカテゴリ名（備考への記録用）|
+| `displayName` | | 操作者の表示名（備考への記録用。省略時は「不明」）|
+
+**更新先（source ごと）:**
+
+| source | シート | カテゴリ列 | 備考列 |
+|--------|--------|-----------|--------|
+| `receipt` | receipts | K列 | M列 |
+| `bank` | bank trans | G列 | J列 |
+| `card` | card trans | J列 | L列 |
+
+**備考列への追記フォーマット:**
+
+```
+2026/05/09 14:32:01 田中太郎: 食費→日用品
+```
+
+複数回更新された場合は改行で追記されます。
+
+**レスポンス（成功）:**
+
+```json
+{ "ok": true }
+```
+
+**レスポンス（エラー）:**
+
+```json
+{ "error": "source が不正です（receipt / bank / card）" }
+```
 
 ---
 
@@ -417,6 +494,7 @@ Content-Type: application/json
 | J | String | 備考 | `支払い日時はレシートから読み取れなかったため受信日時を使用` |
 | K | String | カテゴリ（自動）| `食費` |
 | L | String | 除外 | `除外`（集計から除く場合に任意のテキストを記入）|
+| M | String | 備考（更新履歴）| `2026/05/09 14:32:01 田中太郎: 食費→日用品` |
 
 ### bank trans シート（銀行取引）
 
@@ -433,6 +511,7 @@ Content-Type: application/json
 | G | String | カテゴリ（自動）| `` |
 | H | String | 銀行名 | `共通口座（埼玉りそな）` |
 | I | String | 除外 | `除外`（集計から除く場合に任意のテキストを記入）|
+| J | String | 備考（更新履歴）| `2026/05/09 14:32:01 田中太郎: 食費→日用品` |
 
 ### card trans シート（カード利用明細）
 
@@ -451,6 +530,7 @@ Content-Type: application/json
 | I | String | カード名 | `楽天カード` |
 | J | String | カテゴリ（自動）| `食費` |
 | K | String | 除外 | `除外`（集計から除く場合に任意のテキストを記入）|
+| L | String | 備考（更新履歴）| `2026/05/09 14:32:01 田中太郎: 食費→日用品` |
 
 ### category rules シート（カテゴリルール）
 
