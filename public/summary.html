@@ -288,6 +288,20 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── メンバーアバター ── */
+    .member-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
     /* ── 空状態 ── */
     .empty { text-align: center; padding: 32px 16px; color: var(--text-muted); }
   </style>
@@ -489,6 +503,30 @@ function render(data) {
       </div>`;
   }
 
+  // ── メンバー別 ──
+  const sortedMembers = Object.entries(data.members || {})
+    .sort(([, a], [, b]) => b.total - a.total);
+  if (sortedMembers.length > 0) {
+    html += `<div class="list-section"><div class="list-section-title">メンバー別（レシート）</div>`;
+    sortedMembers.forEach(([name, m], i) => {
+      const color = PALETTE[(i + 3) % PALETTE.length];
+      const initial = escHtml([...name][0] || "?");
+      html += `
+        <div class="category-row" data-member="${escHtml(name)}">
+          <span class="member-avatar" style="background:${color}">${initial}</span>
+          <div class="cat-info">
+            <div class="cat-name">${escHtml(name)}</div>
+            <div class="cat-count">${m.transactions.length}件</div>
+          </div>
+          <div class="cat-right">
+            <span class="cat-amount">${fmt(m.total)}</span>
+            <span class="chevron">›</span>
+          </div>
+        </div>`;
+    });
+    html += `</div>`;
+  }
+
   main.innerHTML = html;
 
   // グラフ描画
@@ -526,8 +564,8 @@ function render(data) {
     });
   }
 
-  // カテゴリ行クリック
-  main.querySelectorAll(".category-row").forEach(row => {
+  // カテゴリ・入金行クリック
+  main.querySelectorAll(".category-row[data-cat]").forEach(row => {
     row.addEventListener("click", () => {
       const cat = row.dataset.cat;
       const color = cat === "__income__"
@@ -536,17 +574,35 @@ function render(data) {
       openSheet(cat, color, currentData);
     });
   });
+
+  // メンバー行クリック
+  main.querySelectorAll(".category-row[data-member]").forEach((row, i) => {
+    const color = PALETTE[(i + 3) % PALETTE.length];
+    row.addEventListener("click", () => {
+      openSheet("__member__" + row.dataset.member, color, currentData);
+    });
+  });
 }
 
 function openSheet(catKey, color, data) {
   const isIncome = catKey === "__income__";
+  const isMember = catKey.startsWith("__member__");
+  const memberName = isMember ? catKey.slice(10) : null;
+
   const transactions = isIncome
     ? data.income.transactions
-    : (data.categories[catKey]?.transactions || []);
-  const total = isIncome ? data.incomeTotal : (data.categories[catKey]?.total || 0);
+    : isMember
+      ? (data.members?.[memberName]?.transactions || [])
+      : (data.categories[catKey]?.transactions || []);
+  const total = isIncome
+    ? data.incomeTotal
+    : isMember
+      ? (data.members?.[memberName]?.total || 0)
+      : (data.categories[catKey]?.total || 0);
 
   document.getElementById("sheet-dot").style.background = color;
-  document.getElementById("sheet-title").textContent = isIncome ? "入金" : catKey;
+  document.getElementById("sheet-title").textContent =
+    isIncome ? "入金" : isMember ? memberName : catKey;
   document.getElementById("sheet-total").textContent = fmt(total);
 
   const body = document.getElementById("sheet-body");

@@ -96,15 +96,37 @@ async function aggregateByMonth(spreadsheetId, month) {
     });
   }
 
-  // カテゴリ内をそれぞれ日付昇順でソート
+  // メンバー別集計（receipts のみ）
+  const members = {};
+  for (const row of receiptsRows) {
+    if (extractYearMonth(row[1]) !== month) continue;
+    if (row[11]) continue; // L列: 除外
+    const amount = parseFloat(row[6]) || 0;
+    if (!amount) continue;
+    const name = row[3] || "不明"; // D列: 表示名
+    if (!members[name]) members[name] = { total: 0, transactions: [] };
+    members[name].total += amount;
+    members[name].transactions.push({
+      date: String(row[1] || "").split(" ")[0],
+      label: row[5] || "",          // F列: 店名
+      amount,
+      source: "receipt",
+      detail: [row[10], row[7]].filter(Boolean).join("・"), // カテゴリ・支払方法
+    });
+  }
+
+  // カテゴリ・メンバーをそれぞれ日付昇順でソート
   for (const cat of Object.values(categories)) {
     cat.transactions.sort((a, b) => (a.date > b.date ? 1 : -1));
+  }
+  for (const m of Object.values(members)) {
+    m.transactions.sort((a, b) => (a.date > b.date ? 1 : -1));
   }
   income.transactions.sort((a, b) => (a.date > b.date ? 1 : -1));
 
   const expenseTotal = Object.values(categories).reduce((s, c) => s + c.total, 0);
 
-  return { month, expenseTotal, incomeTotal: income.total, categories, income };
+  return { month, expenseTotal, incomeTotal: income.total, categories, income, members };
 }
 
 function addTransaction(categories, category, tx) {
