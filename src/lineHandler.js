@@ -55,12 +55,22 @@ async function handleTextMessage(event, client) {
 
   if (!categoryLines) categoryLines = "（データなし）";
 
+  // メンバー別レシート合計
+  const sortedMembers = Object.entries(data.members || {}).sort(
+    ([, a], [, b]) => b.total - a.total
+  );
+  const memberSection = sortedMembers.length > 0
+    ? `\n\n【レシート】\n` +
+      sortedMembers.map(([name, m]) => `${name}　¥${m.total.toLocaleString()}`).join("\n")
+    : "";
+
   const summaryText =
     `${title}\n\n` +
     `【支出カテゴリ別】\n${categoryLines}\n` +
     `──────────────\n` +
     `支出合計　¥${data.expenseTotal.toLocaleString()}\n\n` +
-    `【入金】\n入金合計　¥${data.incomeTotal.toLocaleString()}`;
+    `【入金】\n入金合計　¥${data.incomeTotal.toLocaleString()}` +
+    memberSection;
 
   const messages = [{ type: "text", text: summaryText }];
 
