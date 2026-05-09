@@ -38,7 +38,9 @@ app.post("/webhook", middleware(config), (req, res) => {
 app.get("/config", (req, res) => {
   const liffUrl = process.env.LIFF_URL || "";
   const liffId = liffUrl.replace("https://liff.line.me/", "") || null;
-  res.json({ liffId });
+  const authRequired =
+    process.env.NODE_ENV === "production" && !!process.env.LIFF_CHANNEL_ID;
+  res.json({ liffId, authRequired });
 });
 
 /**

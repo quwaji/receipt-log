@@ -670,8 +670,8 @@ async function init() {
     config = await res.json();
   } catch (_) {}
 
-  if (config.liffId) {
-    // 本番: LIFF 初期化してトークン取得
+  if (config.liffId && config.authRequired) {
+    // 本番（authRequired=true）: LIFF 初期化してトークン取得
     try {
       await liff.init({ liffId: config.liffId });
       if (!liff.isInClient()) {
@@ -686,7 +686,7 @@ async function init() {
       return;
     }
   }
-  // 開発環境（liffId なし）はそのままロード
+  // 開発環境（authRequired=false）はそのままロード
   loadData(currentMonth);
 }
 
