@@ -9,6 +9,7 @@
 | POST | `/card/import` | カード利用明細 CSV インポート |
 | GET | `/summary` | 月別集計 JSON |
 | GET | `/summary.html` | 月別集計 SPA |
+| GET | `/config` | SPA 向け設定（LIFF ID・認証フラグ）|
 | GET | `/health` | ヘルスチェック |
 
 ---
@@ -48,6 +49,18 @@ GET https://{cloud-run-url}/summary?month=2026-04
     "transactions": [
       { "date": "2026/04/25", "label": "給与", "amount": 350000, "source": "bank", "detail": "共通口座（埼玉りそな）" }
     ]
+  },
+  "members": {
+    "田中太郎": {
+      "total": 18500,
+      "transactions": [
+        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280, "source": "receipt", "detail": "食費・現金" }
+      ]
+    },
+    "山田花子": {
+      "total": 8200,
+      "transactions": [...]
+    }
   }
 }
 ```
@@ -59,6 +72,11 @@ GET https://{cloud-run-url}/summary?month=2026-04
 | `receipt` | receipts シート（レシート画像） |
 | `bank` | bank trans シート（銀行取引） |
 | `card` | card trans シート（カード利用） |
+
+**`members` フィールド:**
+- receipts シートのみ集計（表示名 D列でグループ化）
+- `detail` は「カテゴリ・支払方法」の組み合わせ（例: `食費・現金`）
+- 合計金額降順でソート（SPA 表示時）
 
 **除外ルール:**
 - 各シートの「除外」列にテキストがある行はスキップ（receipts: L列 / bank trans: I列 / card trans: K列）
@@ -77,6 +95,28 @@ GET https://{cloud-run-url}/summary?month=2026-04
 月別集計 SPA を返します。`?month=YYYY-MM` クエリパラメータで表示月を指定できます（省略時は先月）。
 
 LIFF アプリのエンドポイント URL として登録します。
+
+---
+
+## GET /config
+
+SPA が起動時に呼び出す設定エンドポイント。認証要否と LIFF ID を返します。
+
+**レスポンス:**
+
+```json
+{
+  "liffId": "2xxxxxxxx-xxxxxxxx",
+  "authRequired": true
+}
+```
+
+| フィールド | 説明 |
+|-----------|------|
+| `liffId` | LIFF URL から抽出した ID。`LIFF_URL` 未設定時は `null` |
+| `authRequired` | `NODE_ENV=production` かつ `LIFF_CHANNEL_ID` 設定時のみ `true` |
+
+`authRequired` が `false`（開発環境）の場合、SPA は LIFF 初期化をスキップして直接データを取得します。
 
 ---
 

@@ -6,7 +6,7 @@
 receipt-log/
 ├── src/
 │   ├── index.js
-│   │   └─ Express サーバー、/webhook・/bank/import エンドポイント
+│   │   └─ Express サーバー、/webhook・/bank/import・/card/import・/summary・/config エンドポイント
 │   │
 │   ├── lineHandler.js
 │   │   ├─ LINE イベント処理
@@ -53,6 +53,7 @@ receipt-log/
 │   │   └─ 月別集計（receipts / bank trans / card trans）
 │   │       - 除外列にテキストがある行をスキップ
 │   │       - bank trans の「入金」区分を支出から分離
+│   │       - receipts の表示名（D列）別にメンバー合計を集計（members フィールド）
 │   │       - getLastMonth() で先月を YYYY-MM 形式で返す
 │   │
 │   ├── categoryService.js
@@ -60,6 +61,11 @@ receipt-log/
 │   │       ① category rules シートからキーワードを読み込み部分一致で判定
 │   │       ② 未知の店名のみ Gemini に一括問い合わせ
 │   │       ③ 新規ルールを category rules シートに自動追記
+│   │
+│   ├── liffAuth.js
+│   │   └─ LIFF ID トークン認証ミドルウェア（GET /summary に適用）
+│   │       NODE_ENV=production かつ LIFF_CHANNEL_ID 設定時のみ認証を実施
+│   │       LINE API (POST /oauth2/v2.1/verify) でトークンを検証
 │   │
 │   └── logger.js
 │       └─ logs シートへの処理結果記録
@@ -112,6 +118,7 @@ receipt-log/
 | `CARD_TRANS_SHEET_NAME` | カード取引シート名（default: card trans）| Google Sheets タブ名 |
 | `CATEGORY_RULES_SHEET_NAME` | カテゴリルールシート名（default: category rules）| Google Sheets タブ名 |
 | `LIFF_URL` | LIFF アプリの URL（任意）| LINE Developers > LINE Login チャンネル > LIFF |
+| `LIFF_CHANNEL_ID` | LIFF 認証用 LINE Login チャンネル ID（任意）| LINE Developers > LINE Login チャンネル > Channel ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | GCP サービスアカウント認証 | gcloud iam service-accounts keys create |
 
 ---
@@ -315,14 +322,20 @@ POST /card/import
 - [ ] 新規ルールが category rules シートに自動追記される
 
 ### 月別集計機能
-- [ ] `GET /summary?month=YYYY-MM` が正しい JSON を返すこと
-- [ ] SPA でグラフ・カテゴリリスト・入金が表示されること
+- [ ] `GET /summary?month=YYYY-MM` が正しい JSON を返すこと（categories / income / members フィールドを含む）
+- [ ] SPA でグラフ・カテゴリリスト・入金・メンバー別レシート合計が表示されること
 - [ ] 前月・翌月ナビゲーションが機能すること
-- [ ] カテゴリ・入金タップでドリルダウン明細が開くこと
+- [ ] カテゴリ・入金・メンバータップでドリルダウン明細が開くこと
 - [ ] 明細が日付昇順で表示されること
 - [ ] 除外列にテキストがある行が集計に含まれないこと
-- [ ] LINE で「集計」と送信するとテキスト集計が返ること
+- [ ] LINE で「集計」と送信するとテキスト集計が返ること（【レシート】セクションも含む）
 - [ ] LIFF_URL 設定時に「グラフで見る」ボタンが返ること
+
+### LIFF 認証
+- [ ] ローカル開発時（NODE_ENV≠production）はブラウザから `/summary.html` に直接アクセスできること
+- [ ] `LIFF_CHANNEL_ID` 設定時、`GET /config` の `authRequired` が `true` を返すこと
+- [ ] LINE アプリから SPA を開いた場合、LIFF ID トークンで認証されること
+- [ ] LINE アプリ外（ブラウザ）からアクセスした場合、「LINE アプリから開いてください」と表示されること
 
 ---
 

@@ -53,7 +53,8 @@
 - `POST /webhook` — LINE のイベント受信（middleware で署名検証）
 - `POST /bank/import` — 銀行取引 CSV インポート
 - `POST /card/import` — カード利用明細 CSV インポート
-- `GET /summary?month=YYYY-MM` — 月別集計 JSON
+- `GET /summary?month=YYYY-MM` — 月別集計 JSON（本番環境では LIFF ID トークン認証必須）
+- `GET /config` — フロントエンド向け設定 JSON（liffId / authRequired）
 - `GET /summary.html` — 月別集計 SPA（静的ファイル配信）
 - `GET /health` — ヘルスチェック
 
@@ -69,6 +70,7 @@ CARD_TRANS_SHEET_NAME        # カード取引シート名（default: card trans
 LOGS_SHEET_NAME              # ログシート名（default: logs）
 CATEGORY_RULES_SHEET_NAME    # カテゴリルールシート名（default: category rules）
 LIFF_URL                     # LIFF アプリの URL（設定時は集計返信にボタンを追加）
+LIFF_CHANNEL_ID              # LINE Login チャンネル ID（設定時は /summary に LIFF 認証を適用）
 BANK_FOLDER_ID               # 銀行 CSV を置く Google Drive フォルダ ID
 CARD_FOLDER_ID               # カード CSV を置く Google Drive フォルダ ID
 GOOGLE_SERVICE_ACCOUNT_JSON  # GCP サービスアカウント認証情報
@@ -86,7 +88,8 @@ Event 受信
 [メッセージタイプ判定]
   ├─ テキストメッセージ（「集計」を含む）
   │   └─ aggregationService で先月集計
-  │       → テキスト返信 + LIFF ボタン（LIFF_URL 設定時）
+  │       → テキスト返信（カテゴリ別支出・入金合計・【レシート】メンバー別合計）
+  │           + LIFF ボタン（LIFF_URL 設定時）
   │
   ├─ 画像以外（テキストで「集計」を含まない等）→ 無視して終了
   │
@@ -169,12 +172,13 @@ Event 受信
   ↓
 [集計]
   ├─ receipts: カテゴリ（K列）別に金額（G列）を合算
+  │            + 表示名（D列）別にメンバー合計を集計
   ├─ bank trans:
   │   ├─ 区分（C列）=「入金」→ 入金合計に計上
   │   └─ それ以外 → カテゴリ（G列）別に金額（B列）を合算
   └─ card trans: カテゴリ（J列）別に金額（E列）を合算
   ↓
-[明細を日付昇順でソート]
+[明細・メンバーを日付昇順でソート]
 ```
 
 **レスポンス形式:**
@@ -195,6 +199,15 @@ Event 受信
   "income": {
     "total": 350000,
     "transactions": [...]
+  },
+  "members": {
+    "田中太郎": {
+      "total": 18500,
+      "transactions": [
+        { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280,
+          "source": "receipt", "detail": "食費・現金" }
+      ]
+    }
   }
 }
 ```
@@ -339,6 +352,19 @@ Event 受信
 app.post("/webhook", middleware(config), handler);
 // X-Line-Signature ヘッダーが不正な場合は 401 返す
 ```
+
+### LIFF ID トークン認証 (`src/liffAuth.js`)
+
+`GET /summary` に適用するミドルウェア。`NODE_ENV=production` かつ `LIFF_CHANNEL_ID` が設定されている場合のみ認証を行う。
+
+```javascript
+// フロントエンドは /config で authRequired を確認し、true の場合のみ LIFF.init() を実行
+// Authorization: Bearer <idToken> ヘッダーを付与して /summary を呼び出す
+// ミドルウェアは LINE API (POST /oauth2/v2.1/verify) でトークンを検証
+```
+
+- ローカル開発時（`NODE_ENV` が production 以外）は認証スキップ → ブラウザで直接 `/summary.html` にアクセス可能
+- `LIFF_CHANNEL_ID` 未設定時も認証スキップ（警告ログのみ）
 
 ### サービスアカウント認証
 
