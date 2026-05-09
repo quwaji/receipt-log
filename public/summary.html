@@ -304,6 +304,77 @@
 
     /* ── 空状態 ── */
     .empty { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+
+    /* ── 編集ボタン ── */
+    .edit-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      padding: 4px 6px;
+      cursor: pointer;
+      border-radius: 6px;
+      flex-shrink: 0;
+      line-height: 1;
+      transition: background .1s, color .1s;
+    }
+    .edit-btn:active { background: #f0f0f0; color: var(--primary); }
+
+    /* ── カテゴリ選択シート ── */
+    #cat-sheet {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-radius: 20px 20px 0 0;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      transform: translateY(100%);
+      transition: transform .28s cubic-bezier(.32,1,.32,1);
+      z-index: 200;
+    }
+    #cat-sheet.open { transform: translateY(0); }
+    #cat-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.4);
+      z-index: 199;
+    }
+    #cat-overlay.open { display: block; }
+    .cat-sheet-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .cat-sheet-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .cat-sheet-sub { font-size: 12px; color: var(--text-muted); }
+    .cat-options {
+      overflow-y: auto;
+      flex: 1;
+      padding: 8px 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .cat-option-btn {
+      padding: 8px 16px;
+      border-radius: 20px;
+      border: 1.5px solid var(--border);
+      background: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: border-color .1s, background .1s;
+    }
+    .cat-option-btn.selected {
+      border-color: var(--primary);
+      background: #eaf3fb;
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .cat-option-btn:active { background: #f0f0f0; }
   </style>
 </head>
 <body>
@@ -317,6 +388,17 @@
 <main id="main">
   <div class="state-msg"><div class="spinner"></div>読み込み中…</div>
 </main>
+
+<!-- カテゴリ選択シート -->
+<div id="cat-overlay"></div>
+<div id="cat-sheet">
+  <div class="sheet-handle" style="margin:12px auto 0;width:36px;height:4px;background:var(--border);border-radius:2px;flex-shrink:0;"></div>
+  <div class="cat-sheet-header">
+    <div class="cat-sheet-title" id="cat-sheet-title">カテゴリを変更</div>
+    <div class="cat-sheet-sub" id="cat-sheet-sub"></div>
+  </div>
+  <div class="cat-options" id="cat-options"></div>
+</div>
 
 <!-- ドリルダウンシート -->
 <div class="sheet-overlay" id="overlay"></div>
@@ -347,7 +429,9 @@ const BADGE_CLASSES = { receipt: "badge-receipt", bank: "badge-bank", card: "bad
 let currentMonth = getMonthFromUrl();
 let chartInstance = null;
 let currentData = null;
-let idToken = null; // LIFF ID トークン（本番環境のみ）
+let idToken = null;       // LIFF ID トークン（本番環境のみ）
+let currentUser = null;   // LIFF プロフィール（本番環境のみ）
+let categories = [];      // /config から取得
 
 function getMonthFromUrl() {
   const p = new URLSearchParams(location.search);
@@ -609,17 +693,34 @@ function openSheet(catKey, color, data) {
   if (transactions.length === 0) {
     body.innerHTML = '<div class="empty">明細なし</div>';
   } else {
-    body.innerHTML = transactions.map(tx => `
-      <div class="tx-row">
-        <div class="tx-label">${escHtml(tx.label || "（不明）")}</div>
-        <div class="tx-amount">${isIncome ? "+" : ""}${fmt(tx.amount)}</div>
-        <div class="tx-meta">
-          <span class="tx-date">${escHtml(tx.date)}</span>
-          <span class="badge ${BADGE_CLASSES[tx.source] || ""}">${SOURCE_LABELS[tx.source] || tx.source}</span>
-          ${tx.detail ? `<span class="tx-detail">${escHtml(tx.detail)}</span>` : ""}
-        </div>
-      </div>
-    `).join("");
+    body.innerHTML = transactions.map((tx, idx) => {
+      const canEdit = !isIncome && tx.rowIndex && tx.source;
+      const editBtn = canEdit
+        ? `<button class="edit-btn" data-idx="${idx}" title="カテゴリを変更">✏️</button>`
+        : "";
+      return `
+        <div class="tx-row">
+          <div class="tx-label">${escHtml(tx.label || "（不明）")}</div>
+          <div style="display:flex;align-items:center;gap:4px;grid-column:2;grid-row:1/3;align-self:center;">
+            <span class="tx-amount" style="grid-column:unset;grid-row:unset;">${isIncome ? "+" : ""}${fmt(tx.amount)}</span>
+            ${editBtn}
+          </div>
+          <div class="tx-meta">
+            <span class="tx-date">${escHtml(tx.date)}</span>
+            <span class="badge ${BADGE_CLASSES[tx.source] || ""}">${SOURCE_LABELS[tx.source] || tx.source}</span>
+            ${tx.detail ? `<span class="tx-detail">${escHtml(tx.detail)}</span>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    // 編集ボタンのイベント登録
+    body.querySelectorAll(".edit-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx);
+        openCatSheet(transactions[idx]);
+      });
+    });
   }
 
   document.getElementById("overlay").classList.add("open");
@@ -631,6 +732,66 @@ function closeSheet() {
   document.getElementById("overlay").classList.remove("open");
   document.getElementById("sheet").classList.remove("open");
   document.body.style.overflow = "";
+}
+
+function openCatSheet(tx) {
+  const current = tx.category || "";
+  document.getElementById("cat-sheet-title").textContent = "カテゴリを変更";
+  document.getElementById("cat-sheet-sub").textContent =
+    `${tx.label || "（不明）"}　${fmt(tx.amount)}`;
+
+  const opts = document.getElementById("cat-options");
+  opts.innerHTML = categories.map(cat => `
+    <button class="cat-option-btn${cat === current ? " selected" : ""}" data-cat="${escHtml(cat)}">
+      ${escHtml(cat)}
+    </button>
+  `).join("");
+
+  opts.querySelectorAll(".cat-option-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const newCat = btn.dataset.cat;
+      if (newCat === current) { closeCatSheet(); return; }
+      await patchCategory(tx, newCat);
+    });
+  });
+
+  document.getElementById("cat-overlay").classList.add("open");
+  document.getElementById("cat-sheet").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeCatSheet() {
+  document.getElementById("cat-overlay").classList.remove("open");
+  document.getElementById("cat-sheet").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+async function patchCategory(tx, newCategory) {
+  try {
+    const res = await fetch("/transaction", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        source: tx.source,
+        rowIndex: tx.rowIndex,
+        category: newCategory,
+        oldCategory: tx.category || "",
+        displayName: currentUser?.displayName || "不明",
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`更新に失敗しました: ${err.error || res.status}`);
+      return;
+    }
+  } catch (e) {
+    alert(`更新に失敗しました: ${e.message}`);
+    return;
+  }
+
+  closeCatSheet();
+  closeSheet();
+  await loadData(currentMonth);
 }
 
 function escHtml(s) {
@@ -652,6 +813,7 @@ document.getElementById("next-btn").addEventListener("click", () => {
 });
 document.getElementById("close-btn").addEventListener("click", closeSheet);
 document.getElementById("overlay").addEventListener("click", closeSheet);
+document.getElementById("cat-overlay").addEventListener("click", closeCatSheet);
 
 // スワイプで閉じる
 let touchStartY = 0;
@@ -661,17 +823,25 @@ document.getElementById("sheet").addEventListener("touchstart", e => {
 document.getElementById("sheet").addEventListener("touchend", e => {
   if (e.changedTouches[0].clientY - touchStartY > 60) closeSheet();
 }, { passive: true });
+document.getElementById("cat-sheet").addEventListener("touchstart", e => {
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+document.getElementById("cat-sheet").addEventListener("touchend", e => {
+  if (e.changedTouches[0].clientY - touchStartY > 60) closeCatSheet();
+}, { passive: true });
 
 // ── 初期化（LIFF 認証 → データロード）──
 async function init() {
-  let config = { liffId: null };
+  let config = { liffId: null, authRequired: false, categories: [] };
   try {
     const res = await fetch("/config");
     config = await res.json();
   } catch (_) {}
 
+  categories = config.categories || [];
+
   if (config.liffId && config.authRequired) {
-    // 本番（authRequired=true）: LIFF 初期化してトークン取得
+    // 本番（authRequired=true）: LIFF 初期化してトークン・プロフィール取得
     try {
       await liff.init({ liffId: config.liffId });
       if (!liff.isInClient()) {
@@ -680,6 +850,7 @@ async function init() {
         return;
       }
       idToken = liff.getIDToken();
+      currentUser = await liff.getProfile();
     } catch (err) {
       document.getElementById("main").innerHTML =
         `<div class="state-msg">LIFF の初期化に失敗しました。<br><small>${err.message}</small></div>`;

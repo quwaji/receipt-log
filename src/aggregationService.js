@@ -38,7 +38,8 @@ async function aggregateByMonth(spreadsheetId, month) {
   const income = { total: 0, transactions: [] };
 
   // receipts: B=支払い日時, F=店名, G=金額, K=カテゴリ, L=除外
-  for (const row of receiptsRows) {
+  for (let i = 0; i < receiptsRows.length; i++) {
+    const row = receiptsRows[i];
     if (extractYearMonth(row[1]) !== month) continue;
     if (row[11]) continue; // L列: 除外
     const amount = parseFloat(row[6]) || 0;
@@ -50,11 +51,14 @@ async function aggregateByMonth(spreadsheetId, month) {
       amount,
       source: "receipt",
       detail: row[3] || "",  // D列: 表示名
+      category,
+      rowIndex: i + 2,       // スプレッドシートの実際の行番号（1-based、ヘッダー分+1）
     });
   }
 
   // bank trans: A=取引日, B=金額, C=区分, E=摘要, G=カテゴリ, H=銀行名, I=除外
-  for (const row of bankRows) {
+  for (let i = 0; i < bankRows.length; i++) {
+    const row = bankRows[i];
     if (extractYearMonth(row[0]) !== month) continue;
     if (row[8]) continue; // I列: 除外
     const amount = parseFloat(row[1]) || 0;
@@ -76,12 +80,15 @@ async function aggregateByMonth(spreadsheetId, month) {
         amount: Math.abs(amount),
         source: "bank",
         detail: row[7] || "", // H列: 銀行名
+        category,
+        rowIndex: i + 2,
       });
     }
   }
 
   // card trans: A=利用日, B=利用店名, E=利用金額, I=カード名, J=カテゴリ, K=除外
-  for (const row of cardRows) {
+  for (let i = 0; i < cardRows.length; i++) {
+    const row = cardRows[i];
     if (extractYearMonth(row[0]) !== month) continue;
     if (row[10]) continue; // K列: 除外
     const amount = parseFloat(row[4]) || 0; // E列
@@ -93,17 +100,21 @@ async function aggregateByMonth(spreadsheetId, month) {
       amount,
       source: "card",
       detail: row[8] || "", // I列: カード名
+      category,
+      rowIndex: i + 2,
     });
   }
 
   // メンバー別集計（receipts のみ）
   const members = {};
-  for (const row of receiptsRows) {
+  for (let i = 0; i < receiptsRows.length; i++) {
+    const row = receiptsRows[i];
     if (extractYearMonth(row[1]) !== month) continue;
     if (row[11]) continue; // L列: 除外
     const amount = parseFloat(row[6]) || 0;
     if (!amount) continue;
     const name = row[3] || "不明"; // D列: 表示名
+    const category = row[10] || "その他";
     if (!members[name]) members[name] = { total: 0, transactions: [] };
     members[name].total += amount;
     members[name].transactions.push({
@@ -111,7 +122,9 @@ async function aggregateByMonth(spreadsheetId, month) {
       label: row[5] || "",          // F列: 店名
       amount,
       source: "receipt",
-      detail: [row[10], row[7]].filter(Boolean).join("・"), // カテゴリ・支払方法
+      detail: [category, row[7]].filter(Boolean).join("・"), // カテゴリ・支払方法
+      category,
+      rowIndex: i + 2,
     });
   }
 
