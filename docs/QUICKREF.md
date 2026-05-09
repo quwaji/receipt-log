@@ -232,6 +232,14 @@ curl "http://localhost:8080/summary?month=2026-04"
 open "http://localhost:8080/summary.html?month=2026-04"
 ```
 
+### カテゴリ編集のローカルテスト
+
+```bash
+curl -X PATCH http://localhost:8080/transaction \
+  -H "Content-Type: application/json" \
+  -d '{"source": "receipt", "rowIndex": 5, "category": "日用品", "oldCategory": "食費", "displayName": "テスト"}'
+```
+
 ---
 
 ## エラー対応フローチャート
@@ -336,6 +344,14 @@ POST /card/import
 - [ ] `LIFF_CHANNEL_ID` 設定時、`GET /config` の `authRequired` が `true` を返すこと
 - [ ] LINE アプリから SPA を開いた場合、LIFF ID トークンで認証されること
 - [ ] LINE アプリ外（ブラウザ）からアクセスした場合、「LINE アプリから開いてください」と表示されること
+
+### カテゴリ編集機能
+- [ ] 支出明細行に ✏️ ボタンが表示されること（入金明細には表示されないこと）
+- [ ] ✏️ タップでカテゴリ選択シートが開き、現在のカテゴリがハイライトされること
+- [ ] カテゴリ選択後に Sheets のカテゴリ列（receipts: K / bank trans: G / card trans: J）が更新されること
+- [ ] 備考列（receipts: M / bank trans: J / card trans: L）に `日時 ユーザー名: 旧→新` 形式で追記されること
+- [ ] 複数回更新した場合、備考列が改行で追記されること
+- [ ] カテゴリ変更後にデータが再読み込みされ、正しいカテゴリに移動すること
 
 ---
 

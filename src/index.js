@@ -8,6 +8,8 @@ const { importBankTransactions } = require("./bankTransactionImporter");
 const { importCardTransactions } = require("./cardTransactionImporter");
 const { aggregateByMonth } = require("./aggregationService");
 const { verifyLiffToken } = require("./liffAuth");
+const { CATEGORIES } = require("./categoryService");
+const { google } = require("googleapis");
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -40,7 +42,7 @@ app.get("/config", (req, res) => {
   const liffId = liffUrl.replace("https://liff.line.me/", "") || null;
   const authRequired =
     process.env.NODE_ENV === "production" && !!process.env.LIFF_CHANNEL_ID;
-  res.json({ liffId, authRequired });
+  res.json({ liffId, authRequired, categories: CATEGORIES });
 });
 
 /**
@@ -61,6 +63,93 @@ app.get("/summary", verifyLiffToken, async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error("/summary エラー:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * カテゴリ編集 API
+ * PATCH /transaction
+ * リクエストボディ: { source, rowIndex, category, oldCategory, displayName }
+ */
+const SHEET_META = {
+  receipt: {
+    nameEnv: "SHEET_NAME",
+    nameDefault: "receipts",
+    catCol: "K",
+    noteCol: "M",
+  },
+  bank: {
+    nameEnv: "BANK_TRANS_SHEET_NAME",
+    nameDefault: "bank trans",
+    catCol: "G",
+    noteCol: "J",
+  },
+  card: {
+    nameEnv: "CARD_TRANS_SHEET_NAME",
+    nameDefault: "card trans",
+    catCol: "J",
+    noteCol: "L",
+  },
+};
+
+app.patch("/transaction", express.json(), verifyLiffToken, async (req, res) => {
+  const { source, rowIndex, category, oldCategory, displayName } = req.body;
+
+  if (!SHEET_META[source]) {
+    return res.status(400).json({ error: "source が不正です（receipt / bank / card）" });
+  }
+  if (!Number.isInteger(rowIndex) || rowIndex < 2) {
+    return res.status(400).json({ error: "rowIndex が不正です" });
+  }
+  if (!CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: "category が不正です" });
+  }
+
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) {
+    return res.status(500).json({ error: "SPREADSHEET_ID が設定されていません" });
+  }
+
+  const { nameEnv, nameDefault, catCol, noteCol } = SHEET_META[source];
+  const sheetName = process.env[nameEnv] || nameDefault;
+
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+    const sheets = google.sheets({ version: "v4", auth });
+
+    // 既存の備考を読み取る
+    const getRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!${noteCol}${rowIndex}`,
+    });
+    const existingNote = (getRes.data.values?.[0]?.[0] || "").trim();
+
+    // 備考に追記（日時・ユーザー名・変更内容）
+    const now = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+    const from = oldCategory || "（不明）";
+    const newEntry = `${now} ${displayName || "不明"}: ${from}→${category}`;
+    const updatedNote = existingNote ? `${existingNote}\n${newEntry}` : newEntry;
+
+    // カテゴリと備考を一括更新
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: "RAW",
+        data: [
+          { range: `${sheetName}!${catCol}${rowIndex}`, values: [[category]] },
+          { range: `${sheetName}!${noteCol}${rowIndex}`, values: [[updatedNote]] },
+        ],
+      },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("/transaction PATCH エラー:", err);
     res.status(500).json({ error: err.message });
   }
 });

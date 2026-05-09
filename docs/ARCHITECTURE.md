@@ -54,7 +54,8 @@
 - `POST /bank/import` — 銀行取引 CSV インポート
 - `POST /card/import` — カード利用明細 CSV インポート
 - `GET /summary?month=YYYY-MM` — 月別集計 JSON（本番環境では LIFF ID トークン認証必須）
-- `GET /config` — フロントエンド向け設定 JSON（liffId / authRequired）
+- `PATCH /transaction` — カテゴリ更新 + 備考列への変更履歴追記（verifyLiffToken 付き）
+- `GET /config` — フロントエンド向け設定 JSON（liffId / authRequired / categories）
 - `GET /summary.html` — 月別集計 SPA（静的ファイル配信）
 - `GET /health` — ヘルスチェック
 
@@ -173,6 +174,7 @@ Event 受信
 [集計]
   ├─ receipts: カテゴリ（K列）別に金額（G列）を合算
   │            + 表示名（D列）別にメンバー合計を集計
+  │            各txに rowIndex（シート行番号）と category（現在値）を付与
   ├─ bank trans:
   │   ├─ 区分（C列）=「入金」→ 入金合計に計上
   │   └─ それ以外 → カテゴリ（G列）別に金額（B列）を合算
@@ -192,7 +194,7 @@ Event 受信
       "total": 45230,
       "transactions": [
         { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280,
-          "source": "receipt", "detail": "田中太郎" }
+          "source": "receipt", "detail": "田中太郎", "category": "食費", "rowIndex": 5 }
       ]
     }
   },
@@ -205,7 +207,7 @@ Event 受信
       "total": 18500,
       "transactions": [
         { "date": "2026/04/10", "label": "セブンイレブン", "amount": 1280,
-          "source": "receipt", "detail": "食費・現金" }
+          "source": "receipt", "detail": "食費・現金", "category": "食費", "rowIndex": 5 }
       ]
     }
   }
